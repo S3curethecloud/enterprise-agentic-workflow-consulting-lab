@@ -1,0 +1,16 @@
+flowchart TD
+    q["User Question"] --> normalize["Normalize and Classify Query"]
+    normalize --> auth["Check User Context<br/>Role / Region / Data Access"]
+    auth --> retrieve["Retrieve Relevant Chunks"]
+    retrieve --> filter["Filter by Metadata<br/>Classification / Region / Approval"]
+    filter --> rank["Rank Results"]
+    rank --> context["Build Grounded Prompt"]
+    context --> llm["LLM Generates Answer"]
+    llm --> validate["Validate Response<br/>Sources / Safety / Confidence"]
+    validate --> evidence["Create RAG Evidence Record"]
+    evidence --> answer["Answer with Sources and Confidence"]
+
+    docs["Enterprise Documents"] --> chunk["Chunk Documents"]
+    chunk --> embed["Create Embeddings"]
+    embed --> store["Vector Store"]
+    store --> retrieve

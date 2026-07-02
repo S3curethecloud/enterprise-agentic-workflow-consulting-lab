@@ -1,0 +1,26 @@
+flowchart LR
+    user["User / Business Application"] --> gateway["Enterprise AI Gateway"]
+
+    gateway --> risk["Prompt Risk Scoring"]
+    risk --> agent["Agent Runtime"]
+
+    agent --> llm["LLM Provider Layer<br/>Bedrock / OpenAI / Azure OpenAI / Local Model"]
+    agent --> rag["RAG Service"]
+    agent --> mcp["MCP Tool Layer"]
+    agent --> policy["Policy Engine<br/>OPA / Rego Style"]
+    agent --> evidence["Evidence Service"]
+    agent --> obs["Observability Layer<br/>OpenTelemetry Style"]
+
+    rag --> docs["Enterprise Documents<br/>Policies / Runbooks / Knowledge Base"]
+    mcp --> tools["Approved Enterprise Tools<br/>Search Docs / Query Policy / Read Record / Create Ticket"]
+    policy --> decision["Decision<br/>ALLOW / DENY / REDACT / APPROVAL_REQUIRED"]
+
+    evidence --> store["Evidence Store"]
+    obs --> telemetry["Traces / Metrics / Logs / Cost / Token Usage"]
+
+    decision --> agent
+    tools --> agent
+    docs --> rag
+
+    agent --> response["Grounded and Governed Response"]
+    response --> user
