@@ -1,0 +1,22 @@
+flowchart TD
+    user["Enterprise User"] --> gateway["Business App / AI Gateway"]
+    gateway --> policy["Policy Middleware"]
+    policy --> agent["Agent Runtime"]
+
+    agent --> openai["OpenAI Model"]
+    agent --> rag["RAG Service"]
+    agent --> tools["Tool / Function Calling Layer"]
+    agent --> evidence["Evidence Service"]
+    agent --> obs["Observability Layer"]
+
+    rag --> docs["Approved Enterprise Documents"]
+    tools --> apis["Approved Enterprise APIs"]
+
+    policy --> decision["ALLOW / DENY / APPROVAL_REQUIRED"]
+    decision --> agent
+
+    openai --> response["Model Response"]
+    response --> validate["Output Validation / Safety Check"]
+    validate --> evidence
+    evidence --> final["Grounded Governed Response"]
+    final --> user
