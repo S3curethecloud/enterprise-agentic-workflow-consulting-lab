@@ -1,0 +1,21 @@
+flowchart TD
+    user["Enterprise User"] --> gateway["Business App / AI Gateway"]
+    gateway --> policy["Policy Middleware"]
+    policy --> agent["Agent Runtime"]
+
+    agent --> localmodel["Local Model Server<br/>Llama-style Model"]
+    agent --> rag["Local RAG Service"]
+    agent --> mcp["MCP Tool Layer"]
+    agent --> evidence["Evidence Service"]
+    agent --> obs["Observability Layer"]
+
+    rag --> docs["Approved Local Documents"]
+    mcp --> tools["Approved Local / Enterprise Tools"]
+
+    localmodel --> response["Model Response"]
+    response --> validate["Output Validation"]
+    validate --> evidence
+
+    obs --> telemetry["Traces / Metrics / Runtime Health"]
+    evidence --> final["Grounded Governed Response"]
+    final --> user
