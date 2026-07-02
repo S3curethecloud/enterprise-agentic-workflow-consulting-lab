@@ -1,0 +1,22 @@
+flowchart TD
+    user["Enterprise User"] --> app["Business App / AI Gateway"]
+    app --> iam["IAM Authorization Context"]
+    iam --> bedrock["Amazon Bedrock"]
+
+    bedrock --> model["Foundation Model"]
+    bedrock --> kb["Bedrock Knowledge Base"]
+    bedrock --> guardrails["Bedrock Guardrails"]
+    bedrock --> agent["Agent / AgentCore Pattern"]
+
+    kb --> s3["Approved Documents in S3"]
+    agent --> action["Action Group"]
+    action --> lambda["Lambda / API Tool"]
+
+    app --> logs["CloudWatch Logs"]
+    bedrock --> trail["CloudTrail Audit"]
+    lambda --> evidence["Evidence Record"]
+
+    model --> response["Grounded Response"]
+    guardrails --> response
+    evidence --> response
+    response --> user
