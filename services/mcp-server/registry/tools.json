@@ -1,0 +1,48 @@
+[
+  {
+    "tool_name": "search_internal_docs",
+    "description": "Searches approved internal documents through a controlled tool contract.",
+    "risk_tier": "low",
+    "requires_policy_check": false,
+    "requires_approval": false,
+    "input_schema": {
+      "query": "string",
+      "max_results": "integer"
+    }
+  },
+  {
+    "tool_name": "query_policy",
+    "description": "Queries policy guidance for a requested action or data access pattern.",
+    "risk_tier": "medium",
+    "requires_policy_check": true,
+    "requires_approval": false,
+    "input_schema": {
+      "action": "string",
+      "data_classification": "string",
+      "user_role": "string"
+    }
+  },
+  {
+    "tool_name": "read_customer_record",
+    "description": "Reads a mock customer record when policy and authorization allow access.",
+    "risk_tier": "high",
+    "requires_policy_check": true,
+    "requires_approval": true,
+    "input_schema": {
+      "customer_id": "string",
+      "purpose": "string"
+    }
+  },
+  {
+    "tool_name": "create_ticket",
+    "description": "Creates a mock support or compliance ticket through a controlled contract.",
+    "risk_tier": "medium",
+    "requires_policy_check": true,
+    "requires_approval": false,
+    "input_schema": {
+      "title": "string",
+      "severity": "string",
+      "description": "string"
+    }
+  }
+]

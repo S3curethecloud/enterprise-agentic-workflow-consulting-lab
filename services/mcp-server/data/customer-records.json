@@ -1,0 +1,18 @@
+[
+  {
+    "customer_id": "cust-001",
+    "name": "Mock Customer One",
+    "classification": "confidential",
+    "region": "us",
+    "status": "active",
+    "notes": "Synthetic customer record for lab use only."
+  },
+  {
+    "customer_id": "cust-002",
+    "name": "Mock Customer Two",
+    "classification": "restricted",
+    "region": "eu",
+    "status": "under_review",
+    "notes": "Synthetic restricted customer record for lab use only."
+  }
+]
