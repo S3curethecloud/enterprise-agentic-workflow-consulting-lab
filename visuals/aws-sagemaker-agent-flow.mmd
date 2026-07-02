@@ -1,0 +1,22 @@
+flowchart TD
+    user["Enterprise User"] --> gateway["Enterprise AI Gateway"]
+    gateway --> agent["Agent Runtime"]
+
+    agent --> policy["Policy Engine"]
+    agent --> rag["RAG Service"]
+    agent --> endpoint["SageMaker Inference Endpoint"]
+
+    rag --> docs["Approved Enterprise Documents"]
+    endpoint --> model["Custom / Fine-Tuned Model"]
+
+    agent --> evidence["Evidence Service"]
+    agent --> obs["Observability Layer"]
+
+    endpoint --> cw["CloudWatch Metrics and Logs"]
+    model --> registry["Model Registry / Model Version"]
+
+    policy --> decision["ALLOW / DENY / APPROVAL_REQUIRED"]
+    decision --> agent
+
+    agent --> response["Governed Model Response"]
+    response --> user
