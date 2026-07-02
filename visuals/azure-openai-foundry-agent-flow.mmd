@@ -1,0 +1,24 @@
+flowchart TD
+    user["Enterprise User"] --> entra["Entra ID"]
+    entra --> gateway["Business App / AI Gateway"]
+    gateway --> foundry["Microsoft Foundry / Azure AI Platform"]
+
+    foundry --> model["Azure OpenAI Model Deployment"]
+    foundry --> rag["RAG / Data Connection Layer"]
+    foundry --> agent["Agent Workflow"]
+    foundry --> safety["Safety / Evaluation Controls"]
+
+    rag --> data["Approved Enterprise Data Sources"]
+    agent --> tools["Approved Enterprise Tools / APIs"]
+
+    gateway --> policy["Policy and Authorization Check"]
+    policy --> decision["ALLOW / DENY / APPROVAL_REQUIRED"]
+    decision --> agent
+
+    agent --> evidence["Evidence Record"]
+    agent --> monitor["Azure Monitor / Tracing"]
+
+    model --> response["Grounded Governed Response"]
+    safety --> response
+    evidence --> response
+    response --> user
