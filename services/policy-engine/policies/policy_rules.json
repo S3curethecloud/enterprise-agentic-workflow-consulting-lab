@@ -1,0 +1,53 @@
+{
+  "policy_version": "0.1.0",
+  "decisions": [
+    "ALLOW",
+    "DENY",
+    "REDACT",
+    "APPROVAL_REQUIRED"
+  ],
+  "rules": [
+    {
+      "rule_id": "POL-AI-001",
+      "name": "Deny prompt injection attempts",
+      "decision": "DENY",
+      "description": "Blocks requests that attempt to ignore instructions, reveal secrets, bypass policy, or override security controls."
+    },
+    {
+      "rule_id": "POL-DATA-001",
+      "name": "Approval required for confidential data",
+      "decision": "APPROVAL_REQUIRED",
+      "description": "Requires approval before accessing confidential data."
+    },
+    {
+      "rule_id": "POL-DATA-002",
+      "name": "Deny restricted data without explicit approval",
+      "decision": "DENY",
+      "description": "Blocks restricted data access unless explicit approval is present."
+    },
+    {
+      "rule_id": "POL-PII-001",
+      "name": "Redact PII in model output or tool response",
+      "decision": "REDACT",
+      "description": "Requires redaction when PII is detected in response context."
+    },
+    {
+      "rule_id": "POL-TOOL-001",
+      "name": "Approval required for high-risk tools",
+      "decision": "APPROVAL_REQUIRED",
+      "description": "Requires approval before high-risk tool execution."
+    },
+    {
+      "rule_id": "POL-REGION-001",
+      "name": "Deny region mismatch",
+      "decision": "DENY",
+      "description": "Blocks requests where user region and data region are incompatible."
+    },
+    {
+      "rule_id": "POL-DEFAULT-ALLOW",
+      "name": "Allow low-risk approved workflow",
+      "decision": "ALLOW",
+      "description": "Allows low-risk workflows when no blocking or approval rules match."
+    }
+  ]
+}
