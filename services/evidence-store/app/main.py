@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal
 from uuid import uuid4
+import hashlib
 import json
 
 from fastapi import FastAPI, HTTPException
@@ -12,12 +13,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 EVIDENCE_RECORDS_PATH = BASE_DIR / "data" / "evidence-records.json"
 
 Decision = Literal["ALLOW", "DENY", "REDACT", "APPROVAL_REQUIRED"]
+HASH_ALGORITHM = "SHA-256"
 
 
 app = FastAPI(
     title="Persistent Evidence Store",
     description="Local persistent evidence store for governed enterprise agentic workflows.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 
@@ -59,11 +61,23 @@ class EvidenceRecord(BaseModel):
     stages: list[WorkflowStageEvidence]
     metadata: Dict[str, Any]
     created_at: str
+    record_hash: str
+    previous_record_hash: str | None
+    hash_algorithm: str
+    integrity_status: str
 
 
 class EvidenceRecordListResponse(BaseModel):
     count: int
     records: list[EvidenceRecord]
+
+
+class IntegrityVerificationResponse(BaseModel):
+    record_count: int
+    integrity_status: str
+    verified_records: int
+    failed_records: int
+    failures: list[dict]
 
 
 def read_records() -> list[dict]:
@@ -78,14 +92,92 @@ def write_records(records: list[dict]) -> None:
     EVIDENCE_RECORDS_PATH.write_text(json.dumps(records, indent=2), encoding="utf-8")
 
 
+def canonical_record_payload(record: dict) -> dict:
+    excluded_fields = {
+        "record_hash",
+        "hash_algorithm",
+        "integrity_status",
+    }
+
+    return {
+        key: value
+        for key, value in record.items()
+        if key not in excluded_fields
+    }
+
+
+def calculate_record_hash(record: dict) -> str:
+    canonical_payload = canonical_record_payload(record)
+    serialized = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def get_previous_record_hash(records: list[dict]) -> str | None:
+    if not records:
+        return None
+
+    return records[-1].get("record_hash")
+
+
+def verify_record_integrity(record: dict) -> bool:
+    expected_hash = calculate_record_hash(record)
+    return record.get("record_hash") == expected_hash
+
+
+def verify_chain_integrity(records: list[dict]) -> tuple[str, int, int, list[dict]]:
+    failures = []
+    verified_records = 0
+
+    for index, record in enumerate(records):
+        expected_hash = calculate_record_hash(record)
+        actual_hash = record.get("record_hash")
+
+        if actual_hash != expected_hash:
+            failures.append(
+                {
+                    "record_id": record.get("record_id"),
+                    "failure_type": "record_hash_mismatch",
+                    "expected_hash": expected_hash,
+                    "actual_hash": actual_hash,
+                }
+            )
+            continue
+
+        expected_previous_hash = None if index == 0 else records[index - 1].get("record_hash")
+        actual_previous_hash = record.get("previous_record_hash")
+
+        if actual_previous_hash != expected_previous_hash:
+            failures.append(
+                {
+                    "record_id": record.get("record_id"),
+                    "failure_type": "previous_record_hash_mismatch",
+                    "expected_previous_hash": expected_previous_hash,
+                    "actual_previous_hash": actual_previous_hash,
+                }
+            )
+            continue
+
+        verified_records += 1
+
+    failed_records = len(records) - verified_records
+    integrity_status = "verified" if failed_records == 0 else "failed"
+
+    return integrity_status, verified_records, failed_records, failures
+
+
 @app.get("/health")
 def health_check():
     records = read_records()
+    integrity_status, verified_records, failed_records, _ = verify_chain_integrity(records)
 
     return {
         "service": "evidence-store",
         "status": "healthy",
         "record_count": len(records),
+        "hash_algorithm": HASH_ALGORITHM,
+        "integrity_status": integrity_status,
+        "verified_records": verified_records,
+        "failed_records": failed_records,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -94,28 +186,33 @@ def health_check():
 def create_evidence_record(payload: EvidenceRecordCreateRequest):
     records = read_records()
 
-    record = EvidenceRecord(
-        record_id=f"evidence-{uuid4()}",
-        workflow_id=payload.workflow_id,
-        trace_id=payload.trace_id,
-        user_id=payload.user_id,
-        request=payload.request,
-        final_decision=payload.final_decision,
-        final_status=payload.final_status,
-        grounded_context_found=payload.grounded_context_found,
-        source_count=payload.source_count,
-        policy_id=payload.policy_id,
-        tool_name=payload.tool_name,
-        tool_invoked=payload.tool_invoked,
-        stages=payload.stages,
-        metadata=payload.metadata,
-        created_at=datetime.now(timezone.utc).isoformat(),
-    )
+    record = {
+        "record_id": f"evidence-{uuid4()}",
+        "workflow_id": payload.workflow_id,
+        "trace_id": payload.trace_id,
+        "user_id": payload.user_id,
+        "request": payload.request,
+        "final_decision": payload.final_decision,
+        "final_status": payload.final_status,
+        "grounded_context_found": payload.grounded_context_found,
+        "source_count": payload.source_count,
+        "policy_id": payload.policy_id,
+        "tool_name": payload.tool_name,
+        "tool_invoked": payload.tool_invoked,
+        "stages": [stage.model_dump() for stage in payload.stages],
+        "metadata": payload.metadata,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "previous_record_hash": get_previous_record_hash(records),
+    }
 
-    records.append(record.model_dump())
+    record["record_hash"] = calculate_record_hash(record)
+    record["hash_algorithm"] = HASH_ALGORITHM
+    record["integrity_status"] = "verified"
+
+    records.append(record)
     write_records(records)
 
-    return record
+    return EvidenceRecord(**record)
 
 
 @app.get("/evidence/records", response_model=EvidenceRecordListResponse)
@@ -151,4 +248,18 @@ def get_records_by_workflow(workflow_id: str):
     return EvidenceRecordListResponse(
         count=len(matching_records),
         records=matching_records,
+    )
+
+
+@app.get("/evidence/integrity/verify", response_model=IntegrityVerificationResponse)
+def verify_evidence_integrity():
+    records = read_records()
+    integrity_status, verified_records, failed_records, failures = verify_chain_integrity(records)
+
+    return IntegrityVerificationResponse(
+        record_count=len(records),
+        integrity_status=integrity_status,
+        verified_records=verified_records,
+        failed_records=failed_records,
+        failures=failures,
     )

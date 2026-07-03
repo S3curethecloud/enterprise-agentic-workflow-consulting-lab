@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal
 from uuid import uuid4
+import hashlib
 import json
 
 from fastapi import FastAPI
@@ -56,6 +57,10 @@ class AgentWorkflowResponse(BaseModel):
     evidence_summary: Dict[str, Any]
     evidence_record_id: str
     evidence_persisted: bool
+    record_hash: str
+    previous_record_hash: str | None
+    hash_algorithm: str
+    integrity_status: str
     timestamp: str
 
 
@@ -260,6 +265,34 @@ def read_evidence_records() -> list[dict]:
 def write_evidence_records(records: list[dict]) -> None:
     EVIDENCE_RECORDS_PATH.write_text(json.dumps(records, indent=2), encoding="utf-8")
 
+def canonical_record_payload(record: dict) -> dict:
+    excluded_fields = {
+        "record_hash",
+        "hash_algorithm",
+        "integrity_status",
+    }
+
+    return {
+        key: value
+        for key, value in record.items()
+        if key not in excluded_fields
+    }
+
+
+def calculate_record_hash(record: dict) -> str:
+    canonical_payload = canonical_record_payload(record)
+    serialized = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def get_previous_record_hash(records: list[dict]) -> str | None:
+    if not records:
+        return None
+
+    return records[-1].get("record_hash")
+
+
+
 
 def persist_evidence_record(
     workflow_id: str,
@@ -292,13 +325,18 @@ def persist_evidence_record(
         "stages": [stage.model_dump() for stage in stages],
         "metadata": {
             "service": "agent-orchestrator",
-            "phase": "phase-08",
+            "phase": "phase-09",
             "department": payload.department,
             "role": payload.role,
             "business_justification": payload.business_justification,
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "previous_record_hash": get_previous_record_hash(records),
     }
+
+    record["record_hash"] = calculate_record_hash(record)
+    record["hash_algorithm"] = "SHA-256"
+    record["integrity_status"] = "verified"
 
     records.append(record)
     write_evidence_records(records)
@@ -424,6 +462,9 @@ def agent_workflow(payload: AgentWorkflowRequest):
         stages=stages,
     )
 
+    evidence_records = read_evidence_records()
+    persisted_record = next(record for record in evidence_records if record["record_id"] == evidence_record_id)
+
     evidence_summary = {
         "workflow_id": workflow_id,
         "trace_id": trace_id,
@@ -436,6 +477,10 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "final_decision": decision,
         "evidence_record_id": evidence_record_id,
         "evidence_persisted": True,
+        "record_hash": persisted_record["record_hash"],
+        "previous_record_hash": persisted_record["previous_record_hash"],
+        "hash_algorithm": persisted_record["hash_algorithm"],
+        "integrity_status": persisted_record["integrity_status"],
     }
 
     return AgentWorkflowResponse(
@@ -451,5 +496,9 @@ def agent_workflow(payload: AgentWorkflowRequest):
         evidence_summary=evidence_summary,
         evidence_record_id=evidence_record_id,
         evidence_persisted=True,
+        record_hash=persisted_record["record_hash"],
+        previous_record_hash=persisted_record["previous_record_hash"],
+        hash_algorithm=persisted_record["hash_algorithm"],
+        integrity_status=persisted_record["integrity_status"],
         timestamp=datetime.now(timezone.utc).isoformat(),
     )

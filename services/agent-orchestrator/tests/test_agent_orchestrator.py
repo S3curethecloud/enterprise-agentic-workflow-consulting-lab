@@ -59,6 +59,11 @@ def test_allow_internal_search_workflow_persists_evidence():
     assert body["tool_name"] == "search_internal_docs"
     assert body["evidence_persisted"] is True
     assert body["evidence_record_id"].startswith("evidence-")
+    assert body["record_hash"]
+    assert len(body["record_hash"]) == 64
+    assert body["previous_record_hash"] is None
+    assert body["hash_algorithm"] == "SHA-256"
+    assert body["integrity_status"] == "verified"
     assert body["evidence_summary"]["evidence_persisted"] is True
     assert body["evidence_summary"]["evidence_record_id"] == body["evidence_record_id"]
 
@@ -69,6 +74,9 @@ def test_allow_internal_search_workflow_persists_evidence():
     assert records[0]["trace_id"] == body["trace_id"]
     assert records[0]["final_decision"] == "ALLOW"
     assert records[0]["tool_invoked"] is True
+    assert records[0]["record_hash"] == body["record_hash"]
+    assert records[0]["hash_algorithm"] == "SHA-256"
+    assert records[0]["integrity_status"] == "verified"
     assert len(records[0]["stages"]) == 4
 
 
@@ -176,7 +184,8 @@ def test_create_ticket_allowed_with_approval_persists_evidence():
     assert len(records) == 1
     assert records[0]["tool_name"] == "create_ticket"
     assert records[0]["tool_invoked"] is True
-    assert records[0]["metadata"]["phase"] == "phase-08"
+    assert records[0]["metadata"]["phase"] == "phase-09"
+    assert records[0]["record_hash"] == body["record_hash"]
 
 
 def test_pii_requires_redaction_skips_tool_and_persists_evidence():
@@ -242,3 +251,4 @@ def test_multiple_workflows_create_multiple_evidence_records():
     assert len(records) == 2
     assert records[0]["record_id"] != records[1]["record_id"]
     assert records[0]["workflow_id"] != records[1]["workflow_id"]
+    assert records[1]["previous_record_hash"] == records[0]["record_hash"]

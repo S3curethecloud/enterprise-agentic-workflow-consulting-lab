@@ -67,7 +67,7 @@ def sample_payload(workflow_id="workflow-test-001"):
             }
         ],
         "metadata": {
-            "lab_phase": "phase-07",
+            "lab_phase": "phase-09",
             "environment": "local"
         }
     }
@@ -83,9 +83,11 @@ def test_health_check():
     assert body["service"] == "evidence-store"
     assert body["status"] == "healthy"
     assert body["record_count"] == 0
+    assert body["hash_algorithm"] == "SHA-256"
+    assert body["integrity_status"] == "verified"
 
 
-def test_create_evidence_record():
+def test_create_evidence_record_with_hash_fields():
     reset_evidence_store()
 
     response = client.post("/evidence/records", json=sample_payload())
@@ -94,15 +96,30 @@ def test_create_evidence_record():
     body = response.json()
     assert body["record_id"].startswith("evidence-")
     assert body["workflow_id"] == "workflow-test-001"
-    assert body["trace_id"] == "trace-test-001"
     assert body["final_decision"] == "ALLOW"
-    assert body["final_status"] == "workflow_completed"
     assert body["tool_invoked"] is True
-    assert len(body["stages"]) == 4
+    assert body["record_hash"]
+    assert len(body["record_hash"]) == 64
+    assert body["previous_record_hash"] is None
+    assert body["hash_algorithm"] == "SHA-256"
+    assert body["integrity_status"] == "verified"
 
     stored_records = json.loads(Path(EVIDENCE_RECORDS_PATH).read_text(encoding="utf-8"))
     assert len(stored_records) == 1
-    assert stored_records[0]["workflow_id"] == "workflow-test-001"
+    assert stored_records[0]["record_hash"] == body["record_hash"]
+
+
+def test_second_record_links_to_previous_hash():
+    reset_evidence_store()
+
+    first_response = client.post("/evidence/records", json=sample_payload("workflow-test-001"))
+    second_response = client.post("/evidence/records", json=sample_payload("workflow-test-002"))
+
+    first_body = first_response.json()
+    second_body = second_response.json()
+
+    assert second_body["previous_record_hash"] == first_body["record_hash"]
+    assert second_body["record_hash"] != first_body["record_hash"]
 
 
 def test_list_evidence_records():
@@ -117,6 +134,7 @@ def test_list_evidence_records():
     body = response.json()
     assert body["count"] == 2
     assert len(body["records"]) == 2
+    assert all(record["hash_algorithm"] == "SHA-256" for record in body["records"])
 
 
 def test_get_evidence_record_by_id():
@@ -131,6 +149,7 @@ def test_get_evidence_record_by_id():
     body = response.json()
     assert body["record_id"] == record_id
     assert body["workflow_id"] == "workflow-test-001"
+    assert body["integrity_status"] == "verified"
 
 
 def test_get_missing_evidence_record_returns_404():
@@ -153,3 +172,39 @@ def test_get_records_by_workflow_id():
     body = response.json()
     assert body["count"] == 2
     assert all(record["workflow_id"] == "workflow-shared" for record in body["records"])
+
+
+def test_verify_integrity_success():
+    reset_evidence_store()
+
+    client.post("/evidence/records", json=sample_payload("workflow-test-001"))
+    client.post("/evidence/records", json=sample_payload("workflow-test-002"))
+
+    response = client.get("/evidence/integrity/verify")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["record_count"] == 2
+    assert body["integrity_status"] == "verified"
+    assert body["verified_records"] == 2
+    assert body["failed_records"] == 0
+    assert body["failures"] == []
+
+
+def test_verify_integrity_detects_tampering():
+    reset_evidence_store()
+
+    client.post("/evidence/records", json=sample_payload("workflow-test-001"))
+
+    records = json.loads(Path(EVIDENCE_RECORDS_PATH).read_text(encoding="utf-8"))
+    records[0]["final_decision"] = "DENY"
+    Path(EVIDENCE_RECORDS_PATH).write_text(json.dumps(records, indent=2), encoding="utf-8")
+
+    response = client.get("/evidence/integrity/verify")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["integrity_status"] == "failed"
+    assert body["verified_records"] == 0
+    assert body["failed_records"] == 1
+    assert body["failures"][0]["failure_type"] == "record_hash_mismatch"
