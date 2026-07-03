@@ -56,6 +56,26 @@ class WorkflowTraceEvent(BaseModel):
     details: Dict[str, Any]
 
 
+class PerformanceTelemetry(BaseModel):
+    gateway_latency_ms: int
+    rag_latency_ms: int
+    policy_latency_ms: int
+    tool_latency_ms: int
+    evidence_latency_ms: int
+    total_latency_ms: int
+    performance_slo_ms: int
+    performance_slo_status: str
+
+
+class CostTelemetry(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    estimated_cost_usd: float
+    cost_model: str
+    cost_note: str
+
+
 class AgentWorkflowResponse(BaseModel):
     workflow_id: str
     trace_id: str
@@ -70,6 +90,9 @@ class AgentWorkflowResponse(BaseModel):
     trace_timeline: list[WorkflowTraceEvent]
     stage_event_count: int
     total_latency_ms: int
+    performance_telemetry: PerformanceTelemetry
+    cost_telemetry: CostTelemetry
+    performance_slo_status: str
     evidence_record_id: str
     evidence_persisted: bool
     record_hash: str
@@ -321,6 +344,8 @@ def persist_evidence_record(
     tool_invoked: bool,
     stages: list[WorkflowStage],
     trace_timeline: list[WorkflowTraceEvent],
+    performance_telemetry: PerformanceTelemetry,
+    cost_telemetry: CostTelemetry,
 ) -> str:
     records = read_evidence_records()
     record_id = f"evidence-{uuid4()}"
@@ -348,6 +373,9 @@ def persist_evidence_record(
             "stage_event_count": len(trace_timeline),
             "total_latency_ms": calculate_total_latency(trace_timeline),
             "trace_timeline": [event.model_dump() for event in trace_timeline],
+            "performance_telemetry": performance_telemetry.model_dump(),
+            "cost_telemetry": cost_telemetry.model_dump(),
+            "performance_slo_status": performance_telemetry.performance_slo_status,
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "previous_record_hash": get_previous_record_hash(records),
@@ -389,12 +417,73 @@ def calculate_total_latency(trace_timeline: list[WorkflowTraceEvent]) -> int:
     return sum(event.latency_ms for event in trace_timeline)
 
 
+def estimate_tokens(text: str) -> int:
+    # Simple deterministic local estimate: roughly 1 token per 4 characters.
+    return max(1, round(len(text) / 4))
+
+
+def estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
+    # Local placeholder based on a generic low-cost model estimate.
+    # This is intentionally not tied to a live provider price.
+    input_rate_per_1k = 0.00015
+    output_rate_per_1k = 0.00060
+
+    cost = (input_tokens / 1000 * input_rate_per_1k) + (output_tokens / 1000 * output_rate_per_1k)
+    return round(cost, 6)
+
+
+def build_performance_telemetry(trace_timeline: list[WorkflowTraceEvent]) -> PerformanceTelemetry:
+    latency_by_stage = {event.stage_name: event.latency_ms for event in trace_timeline}
+    evidence_latency_ms = 6
+    total_latency_ms = calculate_total_latency(trace_timeline) + evidence_latency_ms
+    performance_slo_ms = 250
+
+    if total_latency_ms <= performance_slo_ms:
+        slo_status = "within_slo"
+    else:
+        slo_status = "slo_breached"
+
+    return PerformanceTelemetry(
+        gateway_latency_ms=latency_by_stage.get("ai_gateway", 0),
+        rag_latency_ms=latency_by_stage.get("rag_retrieval", 0),
+        policy_latency_ms=latency_by_stage.get("policy_evaluation", 0),
+        tool_latency_ms=latency_by_stage.get("mcp_tool_invocation", 0),
+        evidence_latency_ms=evidence_latency_ms,
+        total_latency_ms=total_latency_ms,
+        performance_slo_ms=performance_slo_ms,
+        performance_slo_status=slo_status,
+    )
+
+
+def build_cost_telemetry(payload: AgentWorkflowRequest, grounded_context_found: bool, tool_invoked: bool) -> CostTelemetry:
+    input_tokens = estimate_tokens(payload.request)
+
+    # Output tokens are simulated based on whether the workflow retrieved context and invoked a tool.
+    output_tokens = 80
+    if grounded_context_found:
+        output_tokens += 45
+    if tool_invoked:
+        output_tokens += 35
+
+    total_tokens = input_tokens + output_tokens
+    estimated_cost_usd = estimate_cost_usd(input_tokens, output_tokens)
+
+    return CostTelemetry(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        estimated_cost_usd=estimated_cost_usd,
+        cost_model="local-placeholder-generic-llm",
+        cost_note="Deterministic local cost estimate for lab use only. Not tied to live provider pricing.",
+    )
+
+
 @app.get("/health")
 def health_check():
     return {
         "service": "agent-orchestrator",
         "status": "healthy",
-        "workflow": "gateway-rag-policy-mcp-evidence-trace",
+        "workflow": "gateway-rag-policy-mcp-evidence-trace-telemetry",
         "evidence_store_path": str(EVIDENCE_RECORDS_PATH),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -563,6 +652,13 @@ def agent_workflow(payload: AgentWorkflowRequest):
     else:
         final_status = "workflow_denied"
 
+    performance_telemetry = build_performance_telemetry(trace_timeline)
+    cost_telemetry = build_cost_telemetry(
+        payload=payload,
+        grounded_context_found=grounded_context_found,
+        tool_invoked=tool_invoked,
+    )
+
     evidence_record_id = persist_evidence_record(
         workflow_id=workflow_id,
         trace_id=trace_id,
@@ -575,6 +671,8 @@ def agent_workflow(payload: AgentWorkflowRequest):
         tool_invoked=tool_invoked,
         stages=stages,
         trace_timeline=trace_timeline,
+        performance_telemetry=performance_telemetry,
+        cost_telemetry=cost_telemetry,
     )
 
     evidence_records = read_evidence_records()
@@ -593,7 +691,12 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "evidence_record_id": evidence_record_id,
         "evidence_persisted": True,
         "stage_event_count": len(trace_timeline),
-        "total_latency_ms": calculate_total_latency(trace_timeline),
+        "total_latency_ms": performance_telemetry.total_latency_ms,
+        "performance_slo_status": performance_telemetry.performance_slo_status,
+        "input_tokens": cost_telemetry.input_tokens,
+        "output_tokens": cost_telemetry.output_tokens,
+        "total_tokens": cost_telemetry.total_tokens,
+        "estimated_cost_usd": cost_telemetry.estimated_cost_usd,
         "record_hash": persisted_record["record_hash"],
         "previous_record_hash": persisted_record["previous_record_hash"],
         "hash_algorithm": persisted_record["hash_algorithm"],
@@ -613,7 +716,10 @@ def agent_workflow(payload: AgentWorkflowRequest):
         evidence_summary=evidence_summary,
         trace_timeline=trace_timeline,
         stage_event_count=len(trace_timeline),
-        total_latency_ms=calculate_total_latency(trace_timeline),
+        total_latency_ms=performance_telemetry.total_latency_ms,
+        performance_telemetry=performance_telemetry,
+        cost_telemetry=cost_telemetry,
+        performance_slo_status=performance_telemetry.performance_slo_status,
         evidence_record_id=evidence_record_id,
         evidence_persisted=True,
         record_hash=persisted_record["record_hash"],

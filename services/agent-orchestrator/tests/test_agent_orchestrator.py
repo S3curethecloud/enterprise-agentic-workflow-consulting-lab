@@ -25,7 +25,7 @@ def test_health_check():
     body = response.json()
     assert body["service"] == "agent-orchestrator"
     assert body["status"] == "healthy"
-    assert body["workflow"] == "gateway-rag-policy-mcp-evidence-trace"
+    assert body["workflow"] == "gateway-rag-policy-mcp-evidence-trace-telemetry"
     assert "evidence_store_path" in body
 
 
@@ -62,6 +62,13 @@ def test_allow_internal_search_workflow_persists_evidence():
     assert body["stage_event_count"] == 4
     assert body["total_latency_ms"] > 0
     assert len(body["trace_timeline"]) == 4
+    assert body["performance_slo_status"] == "within_slo"
+    assert body["performance_telemetry"]["total_latency_ms"] == body["total_latency_ms"]
+    assert body["performance_telemetry"]["performance_slo_status"] == "within_slo"
+    assert body["cost_telemetry"]["input_tokens"] > 0
+    assert body["cost_telemetry"]["output_tokens"] > 0
+    assert body["cost_telemetry"]["total_tokens"] == body["cost_telemetry"]["input_tokens"] + body["cost_telemetry"]["output_tokens"]
+    assert body["cost_telemetry"]["estimated_cost_usd"] >= 0
     assert body["record_hash"]
     assert len(body["record_hash"]) == 64
     assert body["previous_record_hash"] is None
@@ -82,6 +89,11 @@ def test_allow_internal_search_workflow_persists_evidence():
     assert records[0]["integrity_status"] == "verified"
     assert records[0]["metadata"]["stage_event_count"] == 4
     assert records[0]["metadata"]["total_latency_ms"] > 0
+    assert records[0]["metadata"]["performance_slo_status"] == "within_slo"
+    assert "performance_telemetry" in records[0]["metadata"]
+    assert "cost_telemetry" in records[0]["metadata"]
+    assert records[0]["metadata"]["performance_telemetry"]["total_latency_ms"] == body["total_latency_ms"]
+    assert records[0]["metadata"]["cost_telemetry"]["total_tokens"] == body["cost_telemetry"]["total_tokens"]
     assert len(records[0]["metadata"]["trace_timeline"]) == 4
     assert len(records[0]["stages"]) == 4
 
@@ -286,7 +298,7 @@ def test_trace_timeline_contains_expected_stage_events():
     timeline = body["trace_timeline"]
 
     assert body["stage_event_count"] == 4
-    assert body["total_latency_ms"] == sum(event["latency_ms"] for event in timeline)
+    assert body["total_latency_ms"] == sum(event["latency_ms"] for event in timeline) + body["performance_telemetry"]["evidence_latency_ms"]
 
     stage_names = [event["stage_name"] for event in timeline]
     event_types = [event["event_type"] for event in timeline]
@@ -308,3 +320,53 @@ def test_trace_timeline_contains_expected_stage_events():
     assert all(event["trace_id"] == body["trace_id"] for event in timeline)
     assert all(event["workflow_id"] == body["workflow_id"] for event in timeline)
     assert all(event["event_id"].startswith("event-") for event in timeline)
+
+
+def test_cost_and_performance_telemetry_model():
+    reset_evidence_store()
+
+    payload = {
+        "user_id": "ola.consultant",
+        "role": "security_architect",
+        "department": "ai_platform",
+        "request": "Create a ticket after policy review for customer support workflow.",
+        "action": "create_ticket",
+        "tool_name": "create_ticket",
+        "data_classification": "confidential",
+        "user_region": "us",
+        "data_region": "us",
+        "risk_tier": "high",
+        "approval_present": True,
+        "pii_detected": False,
+        "business_justification": "Approved policy review"
+    }
+
+    response = client.post("/agent/workflow", json=payload)
+    assert response.status_code == 200
+
+    body = response.json()
+
+    performance = body["performance_telemetry"]
+    cost = body["cost_telemetry"]
+
+    assert performance["gateway_latency_ms"] == 12
+    assert performance["rag_latency_ms"] == 18
+    assert performance["policy_latency_ms"] == 9
+    assert performance["tool_latency_ms"] == 15
+    assert performance["evidence_latency_ms"] == 6
+    assert performance["total_latency_ms"] == 60
+    assert performance["performance_slo_ms"] == 250
+    assert performance["performance_slo_status"] == "within_slo"
+
+    assert cost["input_tokens"] > 0
+    assert cost["output_tokens"] > 0
+    assert cost["total_tokens"] == cost["input_tokens"] + cost["output_tokens"]
+    assert cost["estimated_cost_usd"] >= 0
+    assert cost["cost_model"] == "local-placeholder-generic-llm"
+
+    assert body["evidence_summary"]["performance_slo_status"] == "within_slo"
+    assert body["evidence_summary"]["estimated_cost_usd"] == cost["estimated_cost_usd"]
+
+    records = read_evidence_records()
+    assert records[0]["metadata"]["performance_telemetry"]["total_latency_ms"] == 60
+    assert records[0]["metadata"]["cost_telemetry"]["cost_model"] == "local-placeholder-generic-llm"
