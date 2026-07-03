@@ -1,0 +1,70 @@
+services:
+  ai-gateway:
+    build:
+      context: ./services/ai-gateway
+    container_name: ewcl-ai-gateway
+    ports:
+      - "8001:8001"
+
+  rag-service:
+    build:
+      context: ./services/rag-service
+    container_name: ewcl-rag-service
+    ports:
+      - "8002:8002"
+
+  mcp-server:
+    build:
+      context: ./services/mcp-server
+    container_name: ewcl-mcp-server
+    ports:
+      - "8003:8003"
+
+  policy-engine:
+    build:
+      context: ./services/policy-engine
+    container_name: ewcl-policy-engine
+    ports:
+      - "8004:8004"
+
+  evidence-store:
+    build:
+      context: ./services/evidence-store
+    container_name: ewcl-evidence-store
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./services/evidence-store/data:/app/data
+
+  agent-registry:
+    build:
+      context: ./services/agent-registry
+    container_name: ewcl-agent-registry
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./services/agent-registry/data:/app/data
+
+  approval-service:
+    build:
+      context: ./services/approval-service
+    container_name: ewcl-approval-service
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./services/approval-service/data:/app/data
+
+  agent-orchestrator:
+    build:
+      context: ./services/agent-orchestrator
+    container_name: ewcl-agent-orchestrator
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./services/evidence-store/data:/app/services/evidence-store/data
+      - ./services/agent-registry/data:/app/services/agent-registry/data
+      - ./services/approval-service/data:/app/services/approval-service/data
+    depends_on:
+      - evidence-store
+      - agent-registry
+      - approval-service
