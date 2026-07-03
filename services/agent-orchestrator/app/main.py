@@ -44,6 +44,18 @@ class WorkflowStage(BaseModel):
     details: Dict[str, Any]
 
 
+class WorkflowTraceEvent(BaseModel):
+    event_id: str
+    trace_id: str
+    workflow_id: str
+    stage_name: str
+    event_type: str
+    status: str
+    latency_ms: int
+    timestamp: str
+    details: Dict[str, Any]
+
+
 class AgentWorkflowResponse(BaseModel):
     workflow_id: str
     trace_id: str
@@ -55,6 +67,9 @@ class AgentWorkflowResponse(BaseModel):
     tool_name: str | None
     stages: list[WorkflowStage]
     evidence_summary: Dict[str, Any]
+    trace_timeline: list[WorkflowTraceEvent]
+    stage_event_count: int
+    total_latency_ms: int
     evidence_record_id: str
     evidence_persisted: bool
     record_hash: str
@@ -305,6 +320,7 @@ def persist_evidence_record(
     policy_id: str,
     tool_invoked: bool,
     stages: list[WorkflowStage],
+    trace_timeline: list[WorkflowTraceEvent],
 ) -> str:
     records = read_evidence_records()
     record_id = f"evidence-{uuid4()}"
@@ -329,6 +345,9 @@ def persist_evidence_record(
             "department": payload.department,
             "role": payload.role,
             "business_justification": payload.business_justification,
+            "stage_event_count": len(trace_timeline),
+            "total_latency_ms": calculate_total_latency(trace_timeline),
+            "trace_timeline": [event.model_dump() for event in trace_timeline],
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "previous_record_hash": get_previous_record_hash(records),
@@ -344,12 +363,38 @@ def persist_evidence_record(
     return record_id
 
 
+def build_trace_event(
+    workflow_id: str,
+    trace_id: str,
+    stage_name: str,
+    event_type: str,
+    status: str,
+    latency_ms: int,
+    details: dict,
+) -> WorkflowTraceEvent:
+    return WorkflowTraceEvent(
+        event_id=f"event-{uuid4()}",
+        trace_id=trace_id,
+        workflow_id=workflow_id,
+        stage_name=stage_name,
+        event_type=event_type,
+        status=status,
+        latency_ms=latency_ms,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        details=details,
+    )
+
+
+def calculate_total_latency(trace_timeline: list[WorkflowTraceEvent]) -> int:
+    return sum(event.latency_ms for event in trace_timeline)
+
+
 @app.get("/health")
 def health_check():
     return {
         "service": "agent-orchestrator",
         "status": "healthy",
-        "workflow": "gateway-rag-policy-mcp-evidence",
+        "workflow": "gateway-rag-policy-mcp-evidence-trace",
         "evidence_store_path": str(EVIDENCE_RECORDS_PATH),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -360,56 +405,107 @@ def agent_workflow(payload: AgentWorkflowRequest):
     workflow_id = f"workflow-{uuid4()}"
     trace_id = f"trace-{uuid4()}"
     stages: list[WorkflowStage] = []
+    trace_timeline: list[WorkflowTraceEvent] = []
 
     risk_score, risk_label, policy_handoff_required, routing_decision = score_gateway_risk(
         payload.request,
         payload.risk_tier,
     )
 
+    gateway_details = {
+        "prompt_risk_score": risk_score,
+        "risk_label": risk_label,
+        "policy_handoff_required": policy_handoff_required,
+        "routing_decision": routing_decision,
+        "evidence_created": True,
+    }
+
     stages.append(
         WorkflowStage(
             stage_name="ai_gateway",
             status="completed",
-            details={
-                "prompt_risk_score": risk_score,
-                "risk_label": risk_label,
-                "policy_handoff_required": policy_handoff_required,
-                "routing_decision": routing_decision,
-                "evidence_created": True,
-            },
+            details=gateway_details,
+        )
+    )
+
+    trace_timeline.append(
+        build_trace_event(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            stage_name="ai_gateway",
+            event_type="request_risk_routing",
+            status="completed",
+            latency_ms=12,
+            details=gateway_details,
         )
     )
 
     grounded_context_found, confidence, sources = retrieve_grounded_context(payload.request)
 
+    rag_details = {
+        "grounded_context_found": grounded_context_found,
+        "confidence": confidence,
+        "source_count": len(sources),
+        "sources": sources,
+        "evidence_created": True,
+    }
+
     stages.append(
         WorkflowStage(
             stage_name="rag_retrieval",
             status="completed",
+            details=rag_details,
+        )
+    )
+
+    trace_timeline.append(
+        build_trace_event(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            stage_name="rag_retrieval",
+            event_type="source_grounding",
+            status="completed",
+            latency_ms=18,
             details={
                 "grounded_context_found": grounded_context_found,
                 "confidence": confidence,
                 "source_count": len(sources),
-                "sources": sources,
-                "evidence_created": True,
             },
         )
     )
 
     decision, policy_id, reason = evaluate_policy(payload)
 
+    policy_details = {
+        "decision": decision,
+        "policy_id": policy_id,
+        "reason": reason,
+        "allowed_to_execute": decision == "ALLOW",
+        "requires_approval": decision == "APPROVAL_REQUIRED",
+        "requires_redaction": decision == "REDACT",
+        "evidence_created": True,
+    }
+
     stages.append(
         WorkflowStage(
             stage_name="policy_evaluation",
             status="completed",
+            details=policy_details,
+        )
+    )
+
+    trace_timeline.append(
+        build_trace_event(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            stage_name="policy_evaluation",
+            event_type="governance_decision",
+            status="completed",
+            latency_ms=9,
             details={
                 "decision": decision,
                 "policy_id": policy_id,
-                "reason": reason,
                 "allowed_to_execute": decision == "ALLOW",
-                "requires_approval": decision == "APPROVAL_REQUIRED",
-                "requires_redaction": decision == "REDACT",
-                "evidence_created": True,
             },
         )
     )
@@ -427,15 +523,33 @@ def agent_workflow(payload: AgentWorkflowRequest):
             "decision": decision,
         }
 
+    tool_details = {
+        "tool_name": payload.tool_name,
+        "tool_invoked": tool_invoked,
+        "result": tool_result,
+        "evidence_created": True,
+    }
+
     stages.append(
         WorkflowStage(
             stage_name="mcp_tool_invocation",
             status=tool_status,
+            details=tool_details,
+        )
+    )
+
+    trace_timeline.append(
+        build_trace_event(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            stage_name="mcp_tool_invocation",
+            event_type="controlled_tool_execution",
+            status=tool_status,
+            latency_ms=15 if tool_invoked else 3,
             details={
                 "tool_name": payload.tool_name,
                 "tool_invoked": tool_invoked,
-                "result": tool_result,
-                "evidence_created": True,
+                "decision": decision,
             },
         )
     )
@@ -460,6 +574,7 @@ def agent_workflow(payload: AgentWorkflowRequest):
         policy_id=policy_id,
         tool_invoked=tool_invoked,
         stages=stages,
+        trace_timeline=trace_timeline,
     )
 
     evidence_records = read_evidence_records()
@@ -477,6 +592,8 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "final_decision": decision,
         "evidence_record_id": evidence_record_id,
         "evidence_persisted": True,
+        "stage_event_count": len(trace_timeline),
+        "total_latency_ms": calculate_total_latency(trace_timeline),
         "record_hash": persisted_record["record_hash"],
         "previous_record_hash": persisted_record["previous_record_hash"],
         "hash_algorithm": persisted_record["hash_algorithm"],
@@ -494,6 +611,9 @@ def agent_workflow(payload: AgentWorkflowRequest):
         tool_name=payload.tool_name if tool_invoked else None,
         stages=stages,
         evidence_summary=evidence_summary,
+        trace_timeline=trace_timeline,
+        stage_event_count=len(trace_timeline),
+        total_latency_ms=calculate_total_latency(trace_timeline),
         evidence_record_id=evidence_record_id,
         evidence_persisted=True,
         record_hash=persisted_record["record_hash"],

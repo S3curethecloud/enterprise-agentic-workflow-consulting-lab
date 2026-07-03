@@ -25,7 +25,7 @@ def test_health_check():
     body = response.json()
     assert body["service"] == "agent-orchestrator"
     assert body["status"] == "healthy"
-    assert body["workflow"] == "gateway-rag-policy-mcp-evidence"
+    assert body["workflow"] == "gateway-rag-policy-mcp-evidence-trace"
     assert "evidence_store_path" in body
 
 
@@ -59,6 +59,9 @@ def test_allow_internal_search_workflow_persists_evidence():
     assert body["tool_name"] == "search_internal_docs"
     assert body["evidence_persisted"] is True
     assert body["evidence_record_id"].startswith("evidence-")
+    assert body["stage_event_count"] == 4
+    assert body["total_latency_ms"] > 0
+    assert len(body["trace_timeline"]) == 4
     assert body["record_hash"]
     assert len(body["record_hash"]) == 64
     assert body["previous_record_hash"] is None
@@ -77,6 +80,9 @@ def test_allow_internal_search_workflow_persists_evidence():
     assert records[0]["record_hash"] == body["record_hash"]
     assert records[0]["hash_algorithm"] == "SHA-256"
     assert records[0]["integrity_status"] == "verified"
+    assert records[0]["metadata"]["stage_event_count"] == 4
+    assert records[0]["metadata"]["total_latency_ms"] > 0
+    assert len(records[0]["metadata"]["trace_timeline"]) == 4
     assert len(records[0]["stages"]) == 4
 
 
@@ -252,3 +258,53 @@ def test_multiple_workflows_create_multiple_evidence_records():
     assert records[0]["record_id"] != records[1]["record_id"]
     assert records[0]["workflow_id"] != records[1]["workflow_id"]
     assert records[1]["previous_record_hash"] == records[0]["record_hash"]
+
+
+def test_trace_timeline_contains_expected_stage_events():
+    reset_evidence_store()
+
+    payload = {
+        "user_id": "ola.consultant",
+        "role": "security_architect",
+        "department": "ai_platform",
+        "request": "Search internal AI policy for ticket creation guidance.",
+        "action": "search_internal_docs",
+        "tool_name": "search_internal_docs",
+        "data_classification": "internal",
+        "user_region": "us",
+        "data_region": "us",
+        "risk_tier": "low",
+        "approval_present": False,
+        "pii_detected": False,
+        "business_justification": "Policy research"
+    }
+
+    response = client.post("/agent/workflow", json=payload)
+    assert response.status_code == 200
+
+    body = response.json()
+    timeline = body["trace_timeline"]
+
+    assert body["stage_event_count"] == 4
+    assert body["total_latency_ms"] == sum(event["latency_ms"] for event in timeline)
+
+    stage_names = [event["stage_name"] for event in timeline]
+    event_types = [event["event_type"] for event in timeline]
+
+    assert stage_names == [
+        "ai_gateway",
+        "rag_retrieval",
+        "policy_evaluation",
+        "mcp_tool_invocation",
+    ]
+
+    assert event_types == [
+        "request_risk_routing",
+        "source_grounding",
+        "governance_decision",
+        "controlled_tool_execution",
+    ]
+
+    assert all(event["trace_id"] == body["trace_id"] for event in timeline)
+    assert all(event["workflow_id"] == body["workflow_id"] for event in timeline)
+    assert all(event["event_id"].startswith("event-") for event in timeline)
