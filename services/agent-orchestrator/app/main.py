@@ -14,6 +14,7 @@ Decision = Literal["ALLOW", "DENY", "REDACT", "APPROVAL_REQUIRED"]
 BASE_DIR = Path(__file__).resolve().parents[2]
 EVIDENCE_RECORDS_PATH = BASE_DIR / "evidence-store" / "data" / "evidence-records.json"
 AGENT_REGISTRY_PATH = BASE_DIR / "agent-registry" / "data" / "agents.json"
+APPROVALS_PATH = BASE_DIR / "approval-service" / "data" / "approvals.json"
 
 
 app = FastAPI(
@@ -115,6 +116,12 @@ class AgentWorkflowResponse(BaseModel):
     rai_decision: str
     rai_reason: str
     human_review_required: bool
+    approval_required: bool
+    approval_id: str | None
+    approval_status: str | None
+    approval_reason: str | None
+    approval_service_status: str
+    approval_record_created: bool
     evidence_record_id: str
     evidence_persisted: bool
     record_hash: str
@@ -373,6 +380,12 @@ def persist_evidence_record(
     agent_registry_decision: str,
     agent_registry_reason: str,
     responsible_ai_evaluation: ResponsibleAIEvaluation,
+    approval_required: bool,
+    approval_id: str | None,
+    approval_status: str | None,
+    approval_reason: str | None,
+    approval_service_status: str,
+    approval_record_created: bool,
 ) -> str:
     records = read_evidence_records()
     record_id = f"evidence-{uuid4()}"
@@ -407,6 +420,12 @@ def persist_evidence_record(
                 "rai_decision": responsible_ai_evaluation.rai_decision,
                 "rai_reason": responsible_ai_evaluation.rai_reason,
                 "human_review_required": responsible_ai_evaluation.human_review_required,
+            "approval_required": approval_required,
+            "approval_id": approval_id,
+            "approval_status": approval_status,
+            "approval_reason": approval_reason,
+            "approval_service_status": approval_service_status,
+            "approval_record_created": approval_record_created,
             "stage_event_count": len(trace_timeline),
             "total_latency_ms": calculate_total_latency(trace_timeline),
             "trace_timeline": [event.model_dump() for event in trace_timeline],
@@ -525,6 +544,55 @@ def build_trace_event(
 
 def calculate_total_latency(trace_timeline: list[WorkflowTraceEvent]) -> int:
     return sum(event.latency_ms for event in trace_timeline)
+
+
+def read_approval_records() -> list[dict]:
+    if not APPROVALS_PATH.exists():
+        APPROVALS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        APPROVALS_PATH.write_text("[]", encoding="utf-8")
+
+    return json.loads(APPROVALS_PATH.read_text(encoding="utf-8"))
+
+
+def write_approval_records(approvals: list[dict]) -> None:
+    APPROVALS_PATH.write_text(json.dumps(approvals, indent=2), encoding="utf-8")
+
+
+def create_approval_record(
+    workflow_id: str,
+    trace_id: str,
+    payload: AgentWorkflowRequest,
+    decision: Decision,
+    responsible_ai_evaluation: ResponsibleAIEvaluation,
+) -> dict:
+    approvals = read_approval_records()
+    now = datetime.now(timezone.utc).isoformat()
+
+    approval = {
+        "approval_id": f"approval-{uuid4()}",
+        "workflow_id": workflow_id,
+        "trace_id": trace_id,
+        "agent_id": payload.agent_id,
+        "requested_by": payload.user_id,
+        "approver": "ai-governance-reviewer",
+        "review_reason": responsible_ai_evaluation.rai_reason,
+        "rai_decision": responsible_ai_evaluation.rai_decision,
+        "policy_decision": decision,
+        "risk_tier": payload.risk_tier,
+        "data_classification": payload.data_classification,
+        "requested_action": payload.action,
+        "requested_tool": payload.tool_name,
+        "approval_status": "pending",
+        "decision_reason": None,
+        "created_at": now,
+        "updated_at": now,
+        "decided_at": None,
+    }
+
+    approvals.append(approval)
+    write_approval_records(approvals)
+
+    return approval
 
 
 def evaluate_responsible_ai(
@@ -967,13 +1035,82 @@ def agent_workflow(payload: AgentWorkflowRequest):
     elif decision == "ALLOW" and responsible_ai_evaluation.rai_decision == "PASS":
         final_status = "workflow_completed"
     elif responsible_ai_evaluation.rai_decision == "REVIEW_REQUIRED":
-        final_status = "workflow_waiting_for_human_review"
+        final_status = "workflow_waiting_for_approval"
     elif decision == "APPROVAL_REQUIRED":
         final_status = "workflow_waiting_for_approval"
     elif decision == "REDACT":
         final_status = "workflow_completed_with_redaction"
     else:
         final_status = "workflow_denied"
+
+    approval_required = responsible_ai_evaluation.human_review_required
+    approval_record_created = False
+    approval_service_status = "not_required"
+    approval_id = None
+    approval_status = None
+    approval_reason = None
+
+    if approval_required:
+        approval_record = create_approval_record(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            payload=payload,
+            decision=decision,
+            responsible_ai_evaluation=responsible_ai_evaluation,
+        )
+
+        approval_id = approval_record["approval_id"]
+        approval_status = approval_record["approval_status"]
+        approval_reason = approval_record["review_reason"]
+        approval_service_status = "approval_created"
+        approval_record_created = True
+
+        approval_details = {
+            "approval_required": approval_required,
+            "approval_id": approval_id,
+            "approval_status": approval_status,
+            "approval_reason": approval_reason,
+            "approval_service_status": approval_service_status,
+            "approval_record_created": approval_record_created,
+            "evidence_created": True,
+        }
+
+        stages.append(
+            WorkflowStage(
+                stage_name="human_approval_workflow",
+                status="pending",
+                details=approval_details,
+            )
+        )
+
+        trace_timeline.append(
+            build_trace_event(
+                workflow_id=workflow_id,
+                trace_id=trace_id,
+                stage_name="human_approval_workflow",
+                event_type="approval_request_created",
+                status="pending",
+                latency_ms=8,
+                details={
+                    "approval_id": approval_id,
+                    "approval_status": approval_status,
+                    "approval_record_created": approval_record_created,
+                },
+            )
+        )
+
+    stage_order = {
+        "agent_registry_enforcement": 1,
+        "ai_gateway": 2,
+        "rag_retrieval": 3,
+        "policy_evaluation": 4,
+        "responsible_ai_evaluation": 5,
+        "human_approval_workflow": 6,
+        "mcp_tool_invocation": 7,
+    }
+
+    stages.sort(key=lambda stage: stage_order.get(stage.stage_name, 99))
+    trace_timeline.sort(key=lambda event: stage_order.get(event.stage_name, 99))
 
     performance_telemetry = build_performance_telemetry(trace_timeline)
     cost_telemetry = build_cost_telemetry(
@@ -1001,6 +1138,12 @@ def agent_workflow(payload: AgentWorkflowRequest):
         agent_registry_decision=agent_registry_decision,
         agent_registry_reason=agent_registry_reason,
         responsible_ai_evaluation=responsible_ai_evaluation,
+        approval_required=approval_required,
+        approval_id=approval_id,
+        approval_status=approval_status,
+        approval_reason=approval_reason,
+        approval_service_status=approval_service_status,
+        approval_record_created=approval_record_created,
     )
 
     evidence_records = read_evidence_records()
@@ -1023,6 +1166,12 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "rai_decision": responsible_ai_evaluation.rai_decision,
         "rai_reason": responsible_ai_evaluation.rai_reason,
         "human_review_required": responsible_ai_evaluation.human_review_required,
+        "approval_required": approval_required,
+        "approval_id": approval_id,
+        "approval_status": approval_status,
+        "approval_reason": approval_reason,
+        "approval_service_status": approval_service_status,
+        "approval_record_created": approval_record_created,
         "evidence_record_id": evidence_record_id,
         "evidence_persisted": True,
         "stage_event_count": len(trace_timeline),
@@ -1065,6 +1214,12 @@ def agent_workflow(payload: AgentWorkflowRequest):
         rai_decision=responsible_ai_evaluation.rai_decision,
         rai_reason=responsible_ai_evaluation.rai_reason,
         human_review_required=responsible_ai_evaluation.human_review_required,
+        approval_required=approval_required,
+        approval_id=approval_id,
+        approval_status=approval_status,
+        approval_reason=approval_reason,
+        approval_service_status=approval_service_status,
+        approval_record_created=approval_record_created,
         evidence_record_id=evidence_record_id,
         evidence_persisted=True,
         record_hash=persisted_record["record_hash"],
