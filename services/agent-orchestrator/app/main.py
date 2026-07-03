@@ -78,6 +78,16 @@ class CostTelemetry(BaseModel):
     cost_note: str
 
 
+class ResponsibleAIEvaluation(BaseModel):
+    safety_risk: str
+    bias_risk: str
+    explainability_score: float
+    source_provenance_status: str
+    human_review_required: bool
+    rai_decision: str
+    rai_reason: str
+
+
 class AgentWorkflowResponse(BaseModel):
     workflow_id: str
     trace_id: str
@@ -101,6 +111,10 @@ class AgentWorkflowResponse(BaseModel):
     performance_telemetry: PerformanceTelemetry
     cost_telemetry: CostTelemetry
     performance_slo_status: str
+    responsible_ai_evaluation: ResponsibleAIEvaluation
+    rai_decision: str
+    rai_reason: str
+    human_review_required: bool
     evidence_record_id: str
     evidence_persisted: bool
     record_hash: str
@@ -358,6 +372,7 @@ def persist_evidence_record(
     agent_registry_status: str,
     agent_registry_decision: str,
     agent_registry_reason: str,
+    responsible_ai_evaluation: ResponsibleAIEvaluation,
 ) -> str:
     records = read_evidence_records()
     record_id = f"evidence-{uuid4()}"
@@ -388,6 +403,10 @@ def persist_evidence_record(
             "agent_registry_status": agent_registry_status,
             "agent_registry_decision": agent_registry_decision,
             "agent_registry_reason": agent_registry_reason,
+                "responsible_ai_evaluation": responsible_ai_evaluation.model_dump(),
+                "rai_decision": responsible_ai_evaluation.rai_decision,
+                "rai_reason": responsible_ai_evaluation.rai_reason,
+                "human_review_required": responsible_ai_evaluation.human_review_required,
             "stage_event_count": len(trace_timeline),
             "total_latency_ms": calculate_total_latency(trace_timeline),
             "trace_timeline": [event.model_dump() for event in trace_timeline],
@@ -508,6 +527,82 @@ def calculate_total_latency(trace_timeline: list[WorkflowTraceEvent]) -> int:
     return sum(event.latency_ms for event in trace_timeline)
 
 
+def evaluate_responsible_ai(
+    payload: AgentWorkflowRequest,
+    decision: Decision,
+    grounded_context_found: bool,
+    source_count: int,
+) -> ResponsibleAIEvaluation:
+    request_lower = payload.request.lower()
+
+    unsafe_terms = [
+        "bypass",
+        "ignore policy",
+        "disable guardrail",
+        "exfiltrate",
+        "secret",
+        "credential",
+        "password",
+    ]
+
+    bias_terms = [
+        "race",
+        "religion",
+        "gender",
+        "age",
+        "nationality",
+        "ethnicity",
+        "disability",
+    ]
+
+    safety_risk = "low"
+    bias_risk = "low"
+    human_review_required = False
+
+    if any(term in request_lower for term in unsafe_terms):
+        safety_risk = "high"
+        human_review_required = True
+
+    if any(term in request_lower for term in bias_terms):
+        bias_risk = "medium"
+        human_review_required = True
+
+    if payload.data_classification == "restricted":
+        safety_risk = "high"
+        human_review_required = True
+
+    if decision in ["DENY", "APPROVAL_REQUIRED"]:
+        human_review_required = True
+
+    if grounded_context_found and source_count > 0:
+        source_provenance_status = "grounded_sources_available"
+        explainability_score = 0.91
+    else:
+        source_provenance_status = "insufficient_source_provenance"
+        explainability_score = 0.42
+        human_review_required = True
+
+    if safety_risk == "high":
+        rai_decision = "BLOCK"
+        rai_reason = "Responsible AI evaluation blocked the workflow due to high safety risk."
+    elif human_review_required:
+        rai_decision = "REVIEW_REQUIRED"
+        rai_reason = "Responsible AI evaluation requires human review due to risk, approval, or provenance conditions."
+    else:
+        rai_decision = "PASS"
+        rai_reason = "Responsible AI evaluation passed with acceptable safety, bias, explainability, and provenance signals."
+
+    return ResponsibleAIEvaluation(
+        safety_risk=safety_risk,
+        bias_risk=bias_risk,
+        explainability_score=explainability_score,
+        source_provenance_status=source_provenance_status,
+        human_review_required=human_review_required,
+        rai_decision=rai_decision,
+        rai_reason=rai_reason,
+    )
+
+
 def estimate_tokens(text: str) -> int:
     # Simple deterministic local estimate: roughly 1 token per 4 characters.
     return max(1, round(len(text) / 4))
@@ -535,7 +630,7 @@ def build_performance_telemetry(trace_timeline: list[WorkflowTraceEvent]) -> Per
         slo_status = "slo_breached"
 
     return PerformanceTelemetry(
-        gateway_latency_ms=latency_by_stage.get("ai_gateway", 0) + latency_by_stage.get("agent_registry_enforcement", 0),
+        gateway_latency_ms=latency_by_stage.get("ai_gateway", 0) + latency_by_stage.get("agent_registry_enforcement", 0) + latency_by_stage.get("responsible_ai_evaluation", 0),
         rag_latency_ms=latency_by_stage.get("rag_retrieval", 0),
         policy_latency_ms=latency_by_stage.get("policy_evaluation", 0),
         tool_latency_ms=latency_by_stage.get("mcp_tool_invocation", 0),
@@ -788,6 +883,98 @@ def agent_workflow(payload: AgentWorkflowRequest):
     else:
         final_status = "workflow_denied"
 
+    responsible_ai_evaluation = evaluate_responsible_ai(
+        payload=payload,
+        decision=decision,
+        grounded_context_found=grounded_context_found,
+        source_count=len(sources),
+    )
+
+    rai_details = {
+        "safety_risk": responsible_ai_evaluation.safety_risk,
+        "bias_risk": responsible_ai_evaluation.bias_risk,
+        "explainability_score": responsible_ai_evaluation.explainability_score,
+        "source_provenance_status": responsible_ai_evaluation.source_provenance_status,
+        "human_review_required": responsible_ai_evaluation.human_review_required,
+        "rai_decision": responsible_ai_evaluation.rai_decision,
+        "rai_reason": responsible_ai_evaluation.rai_reason,
+        "evidence_created": True,
+    }
+
+    stages.append(
+        WorkflowStage(
+            stage_name="responsible_ai_evaluation",
+            status="completed",
+            details=rai_details,
+        )
+    )
+
+    trace_timeline.append(
+        build_trace_event(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            stage_name="responsible_ai_evaluation",
+            event_type="rai_safety_provenance_review",
+            status="completed",
+            latency_ms=11,
+            details={
+                "rai_decision": responsible_ai_evaluation.rai_decision,
+                "human_review_required": responsible_ai_evaluation.human_review_required,
+                "source_provenance_status": responsible_ai_evaluation.source_provenance_status,
+            },
+        )
+    )
+
+    # Phase 14 final Responsible AI enforcement gate.
+    # This ensures Responsible AI controls are applied before telemetry,
+    # evidence persistence, and the final response are built.
+    if responsible_ai_evaluation.rai_decision != "PASS":
+        tool_invoked = False
+        tool_status = "skipped"
+        tool_result = {
+            "message": "Tool invocation skipped because Responsible AI did not pass the workflow.",
+            "decision": decision,
+            "rai_decision": responsible_ai_evaluation.rai_decision,
+        }
+
+        for stage in stages:
+            if stage.stage_name == "mcp_tool_invocation":
+                stage.status = "skipped"
+                stage.details["tool_invoked"] = False
+                stage.details["tool_result"] = tool_result
+
+        for event in trace_timeline:
+            if event.stage_name == "mcp_tool_invocation":
+                event.status = "skipped"
+                event.latency_ms = 3
+                event.details["tool_invoked"] = False
+                event.details["rai_decision"] = responsible_ai_evaluation.rai_decision
+
+    stage_order = {
+        "agent_registry_enforcement": 1,
+        "ai_gateway": 2,
+        "rag_retrieval": 3,
+        "policy_evaluation": 4,
+        "responsible_ai_evaluation": 5,
+        "mcp_tool_invocation": 6,
+    }
+
+    stages.sort(key=lambda stage: stage_order.get(stage.stage_name, 99))
+    trace_timeline.sort(key=lambda event: stage_order.get(event.stage_name, 99))
+
+    if responsible_ai_evaluation.rai_decision == "BLOCK":
+        final_status = "workflow_blocked_by_responsible_ai"
+    elif decision == "ALLOW" and responsible_ai_evaluation.rai_decision == "PASS":
+        final_status = "workflow_completed"
+    elif responsible_ai_evaluation.rai_decision == "REVIEW_REQUIRED":
+        final_status = "workflow_waiting_for_human_review"
+    elif decision == "APPROVAL_REQUIRED":
+        final_status = "workflow_waiting_for_approval"
+    elif decision == "REDACT":
+        final_status = "workflow_completed_with_redaction"
+    else:
+        final_status = "workflow_denied"
+
     performance_telemetry = build_performance_telemetry(trace_timeline)
     cost_telemetry = build_cost_telemetry(
         payload=payload,
@@ -813,6 +1000,7 @@ def agent_workflow(payload: AgentWorkflowRequest):
         agent_registry_status=agent_registry_status,
         agent_registry_decision=agent_registry_decision,
         agent_registry_reason=agent_registry_reason,
+        responsible_ai_evaluation=responsible_ai_evaluation,
     )
 
     evidence_records = read_evidence_records()
@@ -832,6 +1020,9 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "agent_registry_status": agent_registry_status,
         "agent_registry_decision": agent_registry_decision,
         "agent_registry_reason": agent_registry_reason,
+        "rai_decision": responsible_ai_evaluation.rai_decision,
+        "rai_reason": responsible_ai_evaluation.rai_reason,
+        "human_review_required": responsible_ai_evaluation.human_review_required,
         "evidence_record_id": evidence_record_id,
         "evidence_persisted": True,
         "stage_event_count": len(trace_timeline),
@@ -870,6 +1061,10 @@ def agent_workflow(payload: AgentWorkflowRequest):
         performance_telemetry=performance_telemetry,
         cost_telemetry=cost_telemetry,
         performance_slo_status=performance_telemetry.performance_slo_status,
+        responsible_ai_evaluation=responsible_ai_evaluation,
+        rai_decision=responsible_ai_evaluation.rai_decision,
+        rai_reason=responsible_ai_evaluation.rai_reason,
+        human_review_required=responsible_ai_evaluation.human_review_required,
         evidence_record_id=evidence_record_id,
         evidence_persisted=True,
         record_hash=persisted_record["record_hash"],
