@@ -1,0 +1,179 @@
+[
+  {
+    "record_id": "evidence-38a049b6-3343-45d7-87cb-6eae63a24728",
+    "workflow_id": "workflow-shared",
+    "trace_id": "trace-test-001",
+    "user_id": "ola.consultant",
+    "request": "Create a ticket after policy review for customer support workflow.",
+    "final_decision": "ALLOW",
+    "final_status": "workflow_completed",
+    "grounded_context_found": true,
+    "source_count": 2,
+    "policy_id": "POL-DEFAULT-ALLOW",
+    "tool_name": "create_ticket",
+    "tool_invoked": true,
+    "stages": [
+      {
+        "stage_name": "ai_gateway",
+        "status": "completed",
+        "details": {
+          "prompt_risk_score": 100,
+          "risk_label": "high",
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "rag_retrieval",
+        "status": "completed",
+        "details": {
+          "grounded_context_found": true,
+          "confidence": 0.85,
+          "source_count": 2,
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "policy_evaluation",
+        "status": "completed",
+        "details": {
+          "decision": "ALLOW",
+          "policy_id": "POL-DEFAULT-ALLOW",
+          "allowed_to_execute": true,
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "mcp_tool_invocation",
+        "status": "completed",
+        "details": {
+          "tool_name": "create_ticket",
+          "tool_invoked": true,
+          "evidence_created": true
+        }
+      }
+    ],
+    "metadata": {
+      "lab_phase": "phase-07",
+      "environment": "local"
+    },
+    "created_at": "2026-07-03T01:26:27.784223+00:00"
+  },
+  {
+    "record_id": "evidence-23f9488e-3af5-4023-8808-c6f89e3bf8bf",
+    "workflow_id": "workflow-shared",
+    "trace_id": "trace-test-001",
+    "user_id": "ola.consultant",
+    "request": "Create a ticket after policy review for customer support workflow.",
+    "final_decision": "ALLOW",
+    "final_status": "workflow_completed",
+    "grounded_context_found": true,
+    "source_count": 2,
+    "policy_id": "POL-DEFAULT-ALLOW",
+    "tool_name": "create_ticket",
+    "tool_invoked": true,
+    "stages": [
+      {
+        "stage_name": "ai_gateway",
+        "status": "completed",
+        "details": {
+          "prompt_risk_score": 100,
+          "risk_label": "high",
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "rag_retrieval",
+        "status": "completed",
+        "details": {
+          "grounded_context_found": true,
+          "confidence": 0.85,
+          "source_count": 2,
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "policy_evaluation",
+        "status": "completed",
+        "details": {
+          "decision": "ALLOW",
+          "policy_id": "POL-DEFAULT-ALLOW",
+          "allowed_to_execute": true,
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "mcp_tool_invocation",
+        "status": "completed",
+        "details": {
+          "tool_name": "create_ticket",
+          "tool_invoked": true,
+          "evidence_created": true
+        }
+      }
+    ],
+    "metadata": {
+      "lab_phase": "phase-07",
+      "environment": "local"
+    },
+    "created_at": "2026-07-03T01:26:27.786562+00:00"
+  },
+  {
+    "record_id": "evidence-5031344e-bfe0-4c61-bb72-f527c7f037c5",
+    "workflow_id": "workflow-other",
+    "trace_id": "trace-test-001",
+    "user_id": "ola.consultant",
+    "request": "Create a ticket after policy review for customer support workflow.",
+    "final_decision": "ALLOW",
+    "final_status": "workflow_completed",
+    "grounded_context_found": true,
+    "source_count": 2,
+    "policy_id": "POL-DEFAULT-ALLOW",
+    "tool_name": "create_ticket",
+    "tool_invoked": true,
+    "stages": [
+      {
+        "stage_name": "ai_gateway",
+        "status": "completed",
+        "details": {
+          "prompt_risk_score": 100,
+          "risk_label": "high",
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "rag_retrieval",
+        "status": "completed",
+        "details": {
+          "grounded_context_found": true,
+          "confidence": 0.85,
+          "source_count": 2,
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "policy_evaluation",
+        "status": "completed",
+        "details": {
+          "decision": "ALLOW",
+          "policy_id": "POL-DEFAULT-ALLOW",
+          "allowed_to_execute": true,
+          "evidence_created": true
+        }
+      },
+      {
+        "stage_name": "mcp_tool_invocation",
+        "status": "completed",
+        "details": {
+          "tool_name": "create_ticket",
+          "tool_invoked": true,
+          "evidence_created": true
+        }
+      }
+    ],
+    "metadata": {
+      "lab_phase": "phase-07",
+      "environment": "local"
+    },
+    "created_at": "2026-07-03T01:26:27.789031+00:00"
+  }
+]
