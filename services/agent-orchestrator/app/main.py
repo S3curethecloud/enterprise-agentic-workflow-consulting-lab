@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Literal
 from uuid import uuid4
+import json
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -8,11 +10,14 @@ from pydantic import BaseModel, Field
 
 Decision = Literal["ALLOW", "DENY", "REDACT", "APPROVAL_REQUIRED"]
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+EVIDENCE_RECORDS_PATH = BASE_DIR / "evidence-store" / "data" / "evidence-records.json"
+
 
 app = FastAPI(
     title="Local Agent Workflow Orchestrator",
     description="End-to-end local agent workflow simulation for enterprise agentic AI.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 
@@ -49,6 +54,8 @@ class AgentWorkflowResponse(BaseModel):
     tool_name: str | None
     stages: list[WorkflowStage]
     evidence_summary: Dict[str, Any]
+    evidence_record_id: str
+    evidence_persisted: bool
     timestamp: str
 
 
@@ -241,12 +248,71 @@ def invoke_tool_if_allowed(tool_name: str, payload: AgentWorkflowRequest) -> tup
     }
 
 
+def read_evidence_records() -> list[dict]:
+    EVIDENCE_RECORDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    if not EVIDENCE_RECORDS_PATH.exists():
+        EVIDENCE_RECORDS_PATH.write_text("[]", encoding="utf-8")
+
+    return json.loads(EVIDENCE_RECORDS_PATH.read_text(encoding="utf-8"))
+
+
+def write_evidence_records(records: list[dict]) -> None:
+    EVIDENCE_RECORDS_PATH.write_text(json.dumps(records, indent=2), encoding="utf-8")
+
+
+def persist_evidence_record(
+    workflow_id: str,
+    trace_id: str,
+    payload: AgentWorkflowRequest,
+    final_decision: Decision,
+    final_status: str,
+    grounded_context_found: bool,
+    source_count: int,
+    policy_id: str,
+    tool_invoked: bool,
+    stages: list[WorkflowStage],
+) -> str:
+    records = read_evidence_records()
+    record_id = f"evidence-{uuid4()}"
+
+    record = {
+        "record_id": record_id,
+        "workflow_id": workflow_id,
+        "trace_id": trace_id,
+        "user_id": payload.user_id,
+        "request": payload.request,
+        "final_decision": final_decision,
+        "final_status": final_status,
+        "grounded_context_found": grounded_context_found,
+        "source_count": source_count,
+        "policy_id": policy_id,
+        "tool_name": payload.tool_name if tool_invoked else None,
+        "tool_invoked": tool_invoked,
+        "stages": [stage.model_dump() for stage in stages],
+        "metadata": {
+            "service": "agent-orchestrator",
+            "phase": "phase-08",
+            "department": payload.department,
+            "role": payload.role,
+            "business_justification": payload.business_justification,
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    records.append(record)
+    write_evidence_records(records)
+
+    return record_id
+
+
 @app.get("/health")
 def health_check():
     return {
         "service": "agent-orchestrator",
         "status": "healthy",
-        "workflow": "gateway-rag-policy-mcp",
+        "workflow": "gateway-rag-policy-mcp-evidence",
+        "evidence_store_path": str(EVIDENCE_RECORDS_PATH),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -345,6 +411,19 @@ def agent_workflow(payload: AgentWorkflowRequest):
     else:
         final_status = "workflow_denied"
 
+    evidence_record_id = persist_evidence_record(
+        workflow_id=workflow_id,
+        trace_id=trace_id,
+        payload=payload,
+        final_decision=decision,
+        final_status=final_status,
+        grounded_context_found=grounded_context_found,
+        source_count=len(sources),
+        policy_id=policy_id,
+        tool_invoked=tool_invoked,
+        stages=stages,
+    )
+
     evidence_summary = {
         "workflow_id": workflow_id,
         "trace_id": trace_id,
@@ -355,6 +434,8 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "source_count": len(sources),
         "final_policy_id": policy_id,
         "final_decision": decision,
+        "evidence_record_id": evidence_record_id,
+        "evidence_persisted": True,
     }
 
     return AgentWorkflowResponse(
@@ -368,5 +449,7 @@ def agent_workflow(payload: AgentWorkflowRequest):
         tool_name=payload.tool_name if tool_invoked else None,
         stages=stages,
         evidence_summary=evidence_summary,
+        evidence_record_id=evidence_record_id,
+        evidence_persisted=True,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
