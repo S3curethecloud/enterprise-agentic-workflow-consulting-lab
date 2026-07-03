@@ -1,111 +1,181 @@
 # Roadmap
 
-## Phase 1 - Source of Truth and Learning Notes
+## Project Status
 
-Goal: Define what the lab is, why it exists, and how it maps to the Senior Consultant - Agent Developer role.
+**Complete — all 18 phases finalized.**
 
-Deliverables:
+This roadmap documents the completed phases for the Enterprise Agentic Workflow Consulting Lab.
 
-- PROJECT_SOT.md
-- README.md
-- ROADMAP.md
-- ARCHITECTURE.md
-- DECISION_GUIDE.md
-- Initial docs and visuals
+## Final Phase Summary
 
-Status: In progress
+| Phase | Status | Description |
+|---:|---|---|
+| 1 | Complete | Platform decision foundation |
+| 2 | Complete | Local AI Gateway skeleton |
+| 3 | Complete | Local RAG service |
+| 4 | Complete | MCP-style tool layer |
+| 5 | Complete | Local policy engine |
+| 6 | Complete | Local agent workflow integration |
+| 7 | Complete | Persistent evidence store |
+| 8 | Complete | Orchestrator evidence store integration |
+| 9 | Complete | Tamper-evident evidence hashing |
+| 10 | Complete | Observability and trace model |
+| 11 | Complete | Cost and performance telemetry model |
+| 12 | Complete | Persistent agent registry |
+| 13 | Complete | Agent registry and orchestrator enforcement |
+| 14 | Complete | Responsible AI evaluation layer |
+| 15 | Complete | Human approval workflow service |
+| 16 | Complete | Orchestrator approval integration |
+| 17 | Complete | Cloud platform mapping and deployment readiness |
+| 18 | Complete | Final consulting demo package and interview story |
 
-## Phase 2 - AI Gateway Skeleton
+## Completed Capability Stack
 
-Goal: Build the controlled entry point for agent requests.
+The project now includes:
 
-Capabilities:
+```text
+Enterprise AI Gateway
+   |
+   v
+Agent Orchestrator
+   |
+   +--> Agent Registry Enforcement
+   +--> RAG Grounding
+   +--> Policy Evaluation
+   +--> Responsible AI Evaluation
+   +--> Human Approval Workflow
+   +--> MCP-Style Tool Invocation
+   +--> Evidence Persistence
+   +--> Tamper-Evident Hashing
+   +--> Trace Observability
+   +--> Cost and Performance Telemetry
+   +--> Deployment Readiness
+   +--> Cloud Platform Mapping
+Phase Details
+Phase 1 — Platform Decision Foundation
 
-- Request intake
-- Identity simulation
-- Prompt risk scoring
-- Model routing placeholder
-- Audit ID generation
-- Policy handoff
+Status: Complete
 
-Status: Not started
+Created the source-of-truth foundation for platform decisions across AWS Bedrock, Azure OpenAI / Microsoft Foundry, OpenAI API, and local open-source model options.
 
-## Phase 3 - RAG Service
+Phase 2 — Local AI Gateway Skeleton
 
-Goal: Build trusted enterprise knowledge retrieval.
+Status: Complete
 
-Capabilities:
+Built the local gateway layer for request intake, risk scoring, route selection, and initial evidence-ready metadata.
 
-- Local documents
-- Chunking
-- Embeddings placeholder
-- Retrieval
-- Source citations
-- Confidence metadata
-- RAG evidence
+Phase 3 — Local RAG Service
 
-Status: Not started
+Status: Complete
 
-## Phase 4 - LLM Provider Decision Layer
+Built a local retrieval layer for trusted internal documents, source grounding, confidence, and provenance metadata.
 
-Goal: Explain and simulate when to use Bedrock, SageMaker, OpenAI, Azure OpenAI / Foundry, or local open-source models.
+Phase 4 — MCP-Style Tool Layer
 
-Status: Not started
+Status: Complete
 
-## Phase 5 - MCP Tool Layer
+Built a local MCP-style server that exposes approved enterprise tool contracts and controlled invocation paths.
 
-Goal: Expose approved tools through an MCP-style interface.
+Phase 5 — Local Policy Engine
 
-Tools:
+Status: Complete
 
-- search_internal_docs
-- query_policy
-- read_customer_record
-- create_ticket
+Built a deterministic policy engine returning ALLOW, DENY, REDACT, and APPROVAL_REQUIRED decisions.
 
-Status: Not started
+Phase 6 — Local Agent Workflow Integration
 
-## Phase 6 - Policy Engine
+Status: Complete
 
-Goal: Add OPA/Rego-style policy decisions.
+Integrated gateway, RAG, policy, and MCP-style tool execution into a local agent workflow orchestrator.
 
-Decisions:
+Phase 7 — Persistent Evidence Store
 
-- ALLOW
-- DENY
-- REDACT
-- APPROVAL_REQUIRED
+Status: Complete
 
-Status: Not started
+Built a persistent evidence store for workflow records.
 
-## Phase 7 - Responsible AI Controls
+Phase 8 — Orchestrator Evidence Store Integration
 
-Goal: Add safety, provenance, explainability, and human approval controls.
+Status: Complete
 
-Status: Not started
+Connected the orchestrator to the evidence store so workflow evidence is automatically persisted.
 
-## Phase 8 - Observability and Evidence
+Phase 9 — Tamper-Evident Evidence Hashing
 
-Goal: Capture trace, metrics, cost, token usage, latency, policy decisions, and tool calls.
+Status: Complete
 
-Status: Not started
+Added SHA-256 hash-chain style integrity metadata to evidence records.
 
-## Phase 9 - Platform Guides
+Phase 10 — Observability and Trace Model
 
-Goal: Document how this pattern maps to real platforms.
+Status: Complete
 
-Platforms:
+Added structured trace events and timeline visibility across workflow stages.
 
-- AWS Bedrock
-- Amazon SageMaker
-- Azure OpenAI / Microsoft Foundry
-- OpenAI API
-- Local open-source Llama-style models
+Phase 11 — Cost and Performance Telemetry Model
 
-Status: Not started
+Status: Complete
 
-## Phase 10 - Interview Story Pack
+Added latency, SLO, token, and estimated cost telemetry.
 
-Goal: Convert lab work into STAR stories and simple interview explanations.
+Phase 12 — Persistent Agent Registry
 
-Status: Not started
+Status: Complete
+
+Built an agent registry with owner, version, status, capabilities, allowed tools, data access scope, and risk tier.
+
+Phase 13 — Agent Registry and Orchestrator Enforcement
+
+Status: Complete
+
+Integrated registry enforcement into the orchestrator so only active, authorized, correctly scoped agents can proceed.
+
+Phase 14 — Responsible AI Evaluation Layer
+
+Status: Complete
+
+Added safety risk, bias risk, explainability, provenance, human review, and RAI decision logic.
+
+Phase 15 — Human Approval Workflow Service
+
+Status: Complete
+
+Built a standalone approval service that creates, lists, retrieves, approves, and rejects human approval requests.
+
+Phase 16 — Orchestrator Approval Integration
+
+Status: Complete
+
+Integrated the orchestrator with approval workflow creation so review-required workflows automatically create approval records.
+
+Phase 17 — Cloud Platform Mapping and Deployment Readiness
+
+Status: Complete
+
+Added Dockerfiles, Docker Compose, service contracts, deployment readiness checklist, and cloud platform mapping.
+
+Phase 18 — Final Consulting Demo Package and Interview Story
+
+Status: Complete
+
+Added the final executive summary, demo guide, interview story, architecture walkthrough, JD alignment matrix, and demo script.
+
+Evidence Files
+
+Each major phase has an evidence file in:
+
+evidence/
+
+Evidence captures what was built, why it matters, validation performed, enterprise pattern demonstrated, and JD alignment.
+
+Final Closure
+
+This 18-phase Enterprise Agentic Workflow Consulting Lab is complete.
+
+The project is ready for:
+
+portfolio presentation
+technical interview walkthrough
+enterprise architecture discussion
+consulting demo
+future production-hardening extension
