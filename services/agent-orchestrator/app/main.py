@@ -13,6 +13,7 @@ Decision = Literal["ALLOW", "DENY", "REDACT", "APPROVAL_REQUIRED"]
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 EVIDENCE_RECORDS_PATH = BASE_DIR / "evidence-store" / "data" / "evidence-records.json"
+AGENT_REGISTRY_PATH = BASE_DIR / "agent-registry" / "data" / "agents.json"
 
 
 app = FastAPI(
@@ -23,6 +24,7 @@ app = FastAPI(
 
 
 class AgentWorkflowRequest(BaseModel):
+    agent_id: str = Field(default="agent-policy-support-v1", examples=["agent-policy-support-v1"])
     user_id: str = Field(..., examples=["ola.consultant"])
     role: str = Field(..., examples=["security_architect"])
     department: str = Field(default="ai_platform", examples=["ai_platform"])
@@ -80,6 +82,12 @@ class AgentWorkflowResponse(BaseModel):
     workflow_id: str
     trace_id: str
     user_id: str
+    agent_id: str
+    agent_name: str | None
+    agent_version: str | None
+    agent_registry_status: str
+    agent_registry_decision: str
+    agent_registry_reason: str
     final_decision: Decision
     final_status: str
     grounded_context_found: bool
@@ -346,6 +354,10 @@ def persist_evidence_record(
     trace_timeline: list[WorkflowTraceEvent],
     performance_telemetry: PerformanceTelemetry,
     cost_telemetry: CostTelemetry,
+    agent: dict | None,
+    agent_registry_status: str,
+    agent_registry_decision: str,
+    agent_registry_reason: str,
 ) -> str:
     records = read_evidence_records()
     record_id = f"evidence-{uuid4()}"
@@ -370,6 +382,12 @@ def persist_evidence_record(
             "department": payload.department,
             "role": payload.role,
             "business_justification": payload.business_justification,
+            "agent_id": payload.agent_id,
+            "agent_name": agent["agent_name"] if agent else None,
+            "agent_version": agent["version"] if agent else None,
+            "agent_registry_status": agent_registry_status,
+            "agent_registry_decision": agent_registry_decision,
+            "agent_registry_reason": agent_registry_reason,
             "stage_event_count": len(trace_timeline),
             "total_latency_ms": calculate_total_latency(trace_timeline),
             "trace_timeline": [event.model_dump() for event in trace_timeline],
@@ -389,6 +407,79 @@ def persist_evidence_record(
     write_evidence_records(records)
 
     return record_id
+
+
+def read_agent_registry() -> list[dict]:
+    if not AGENT_REGISTRY_PATH.exists():
+        AGENT_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        AGENT_REGISTRY_PATH.write_text("[]", encoding="utf-8")
+
+    return json.loads(AGENT_REGISTRY_PATH.read_text(encoding="utf-8"))
+
+
+def find_registered_agent(agent_id: str) -> dict | None:
+    agents = read_agent_registry()
+    return next((agent for agent in agents if agent["agent_id"] == agent_id), None)
+
+
+def risk_rank(risk_tier: str) -> int:
+    ranks = {
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+    }
+    return ranks.get(risk_tier, 0)
+
+
+def evaluate_agent_registry_access(payload: AgentWorkflowRequest) -> tuple[str, str, str, dict | None]:
+    agent = find_registered_agent(payload.agent_id)
+
+    if not agent:
+        return (
+            "DENY",
+            "agent_not_found",
+            f"Agent not found in registry: {payload.agent_id}",
+            None,
+        )
+
+    if agent["status"] != "active":
+        return (
+            "DENY",
+            "agent_not_active",
+            f"Agent status is {agent['status']}; only active agents may execute workflows.",
+            agent,
+        )
+
+    if payload.tool_name not in agent["allowed_tools"]:
+        return (
+            "DENY",
+            "tool_not_allowed",
+            f"Tool {payload.tool_name} is not allowed for agent {agent['agent_name']}.",
+            agent,
+        )
+
+    if payload.data_classification not in agent["data_access_scope"]:
+        return (
+            "DENY",
+            "data_scope_not_allowed",
+            f"Data classification {payload.data_classification} is not in agent data access scope.",
+            agent,
+        )
+
+    if risk_rank(payload.risk_tier) > risk_rank(agent["risk_tier"]):
+        return (
+            "DENY",
+            "risk_tier_exceeded",
+            f"Workflow risk tier {payload.risk_tier} exceeds agent risk tier {agent['risk_tier']}.",
+            agent,
+        )
+
+    return (
+        "ALLOW",
+        "agent_registry_allowed",
+        "Agent is active and authorized for requested tool, data scope, and risk tier.",
+        agent,
+    )
 
 
 def build_trace_event(
@@ -444,7 +535,7 @@ def build_performance_telemetry(trace_timeline: list[WorkflowTraceEvent]) -> Per
         slo_status = "slo_breached"
 
     return PerformanceTelemetry(
-        gateway_latency_ms=latency_by_stage.get("ai_gateway", 0),
+        gateway_latency_ms=latency_by_stage.get("ai_gateway", 0) + latency_by_stage.get("agent_registry_enforcement", 0),
         rag_latency_ms=latency_by_stage.get("rag_retrieval", 0),
         policy_latency_ms=latency_by_stage.get("policy_evaluation", 0),
         tool_latency_ms=latency_by_stage.get("mcp_tool_invocation", 0),
@@ -495,6 +586,46 @@ def agent_workflow(payload: AgentWorkflowRequest):
     trace_id = f"trace-{uuid4()}"
     stages: list[WorkflowStage] = []
     trace_timeline: list[WorkflowTraceEvent] = []
+
+    agent_registry_decision, agent_registry_status, agent_registry_reason, agent = evaluate_agent_registry_access(payload)
+
+    agent_registry_details = {
+        "agent_id": payload.agent_id,
+        "agent_name": agent["agent_name"] if agent else None,
+        "agent_version": agent["version"] if agent else None,
+        "agent_status": agent["status"] if agent else None,
+        "agent_risk_tier": agent["risk_tier"] if agent else None,
+        "agent_allowed_tools": agent["allowed_tools"] if agent else [],
+        "agent_data_access_scope": agent["data_access_scope"] if agent else [],
+        "agent_registry_decision": agent_registry_decision,
+        "agent_registry_status": agent_registry_status,
+        "agent_registry_reason": agent_registry_reason,
+        "evidence_created": True,
+    }
+
+    stages.append(
+        WorkflowStage(
+            stage_name="agent_registry_enforcement",
+            status="completed",
+            details=agent_registry_details,
+        )
+    )
+
+    trace_timeline.append(
+        build_trace_event(
+            workflow_id=workflow_id,
+            trace_id=trace_id,
+            stage_name="agent_registry_enforcement",
+            event_type="agent_authorization_check",
+            status="completed",
+            latency_ms=7,
+            details={
+                "agent_id": payload.agent_id,
+                "agent_registry_decision": agent_registry_decision,
+                "agent_registry_status": agent_registry_status,
+            },
+        )
+    )
 
     risk_score, risk_label, policy_handoff_required, routing_decision = score_gateway_risk(
         payload.request,
@@ -563,7 +694,12 @@ def agent_workflow(payload: AgentWorkflowRequest):
         )
     )
 
-    decision, policy_id, reason = evaluate_policy(payload)
+    if agent_registry_decision == "DENY":
+        decision = "DENY"
+        policy_id = f"REGISTRY-{agent_registry_status.upper()}"
+        reason = agent_registry_reason
+    else:
+        decision, policy_id, reason = evaluate_policy(payload)
 
     policy_details = {
         "decision": decision,
@@ -673,6 +809,10 @@ def agent_workflow(payload: AgentWorkflowRequest):
         trace_timeline=trace_timeline,
         performance_telemetry=performance_telemetry,
         cost_telemetry=cost_telemetry,
+        agent=agent,
+        agent_registry_status=agent_registry_status,
+        agent_registry_decision=agent_registry_decision,
+        agent_registry_reason=agent_registry_reason,
     )
 
     evidence_records = read_evidence_records()
@@ -688,6 +828,10 @@ def agent_workflow(payload: AgentWorkflowRequest):
         "source_count": len(sources),
         "final_policy_id": policy_id,
         "final_decision": decision,
+        "agent_id": payload.agent_id,
+        "agent_registry_status": agent_registry_status,
+        "agent_registry_decision": agent_registry_decision,
+        "agent_registry_reason": agent_registry_reason,
         "evidence_record_id": evidence_record_id,
         "evidence_persisted": True,
         "stage_event_count": len(trace_timeline),
@@ -707,6 +851,12 @@ def agent_workflow(payload: AgentWorkflowRequest):
         workflow_id=workflow_id,
         trace_id=trace_id,
         user_id=payload.user_id,
+        agent_id=payload.agent_id,
+        agent_name=agent["agent_name"] if agent else None,
+        agent_version=agent["version"] if agent else None,
+        agent_registry_status=agent_registry_status,
+        agent_registry_decision=agent_registry_decision,
+        agent_registry_reason=agent_registry_reason,
         final_decision=decision,
         final_status=final_status,
         grounded_context_found=grounded_context_found,

@@ -1,1 +1,70 @@
-[]
+[
+  {
+    "agent_id": "agent-policy-support-v1",
+    "agent_name": "policy-support-agent",
+    "version": "1.0.0",
+    "owner": "ai-platform-team",
+    "description": "Agent that supports policy lookup, source grounding, and controlled ticket creation.",
+    "capabilities": [
+      "policy_lookup",
+      "source_grounding",
+      "ticket_creation"
+    ],
+    "allowed_tools": [
+      "search_internal_docs",
+      "query_policy",
+      "create_ticket"
+    ],
+    "risk_tier": "high",
+    "data_access_scope": [
+      "public",
+      "internal",
+      "confidential"
+    ],
+    "status": "active",
+    "created_at": "2026-07-02T00:00:00+00:00",
+    "updated_at": "2026-07-02T00:00:00+00:00"
+  },
+  {
+    "agent_id": "agent-disabled-v1",
+    "agent_name": "disabled-demo-agent",
+    "version": "1.0.0",
+    "owner": "ai-platform-team",
+    "description": "Disabled demo agent used to validate lifecycle enforcement.",
+    "capabilities": [
+      "policy_lookup"
+    ],
+    "allowed_tools": [
+      "search_internal_docs"
+    ],
+    "risk_tier": "low",
+    "data_access_scope": [
+      "public",
+      "internal"
+    ],
+    "status": "disabled",
+    "created_at": "2026-07-02T00:00:00+00:00",
+    "updated_at": "2026-07-02T00:00:00+00:00"
+  },
+  {
+    "agent_id": "agent-low-risk-v1",
+    "agent_name": "low-risk-reader-agent",
+    "version": "1.0.0",
+    "owner": "ai-platform-team",
+    "description": "Low-risk reader agent.",
+    "capabilities": [
+      "policy_lookup"
+    ],
+    "allowed_tools": [
+      "search_internal_docs"
+    ],
+    "risk_tier": "low",
+    "data_access_scope": [
+      "public",
+      "internal"
+    ],
+    "status": "active",
+    "created_at": "2026-07-02T00:00:00+00:00",
+    "updated_at": "2026-07-02T00:00:00+00:00"
+  }
+]
