@@ -128,7 +128,7 @@ Evidence and Integrity
 Each workflow is persisted into the evidence store.
 ```
 
-# Evidence includes:
+Evidence includes:
 
 request metadata
 policy decision
@@ -139,7 +139,7 @@ telemetry
 tool invocation status
 hash-chain integrity metadata
 ```
-#Observability
+Observability
 
 Each workflow includes trace events for major stages.
 
@@ -150,8 +150,9 @@ Which stage made the decision?
 Was approval required?
 Was a tool invoked?
 Was the evidence persisted?
+```
 
-##Deployment Mapping
+Deployment Mapping
 
 The same architecture can map to:
 
