@@ -19,6 +19,7 @@ Agent Orchestrator
    +--> MCP Tool Layer
    +--> Evidence Store
    +--> Trace and Telemetry
+```
 Key Design Principle
 
 The LLM is not the control plane.
@@ -37,6 +38,7 @@ Evidence Store	Persistent evidence and hash-chain integrity
 Agent Registry	Agent identity, lifecycle, tool scope, data scope
 Approval Service	Human review and approval decisions
 Agent Orchestrator	Coordinates the full workflow
+```
 Workflow Stages
 1. Agent registry enforcement
 2. AI gateway intake
@@ -47,6 +49,7 @@ Workflow Stages
 7. MCP tool invocation if allowed
 8. Evidence persistence
 9. Trace and telemetry output
+```
 Registry Enforcement
 
 The orchestrator checks whether the requesting agent is:
@@ -58,6 +61,7 @@ approved for the requested data classification
 operating within its risk tier
 
 If the agent fails these checks, the workflow is denied or routed to review evidence.
+```
 
 RAG Grounding
 
@@ -70,6 +74,7 @@ data classification standards
 incident response runbooks
 internal AI usage policies
 Policy Enforcement
+```
 
 The policy engine returns one of the following decisions:
 
@@ -79,6 +84,7 @@ REDACT
 APPROVAL_REQUIRED
 
 This models enterprise governance logic before tool execution.
+```
 
 Responsible AI Evaluation
 
@@ -95,6 +101,7 @@ It returns:
 PASS
 REVIEW_REQUIRED
 BLOCK
+```
 Human Approval Workflow
 
 When review is required, the orchestrator creates an approval record with:
@@ -119,8 +126,9 @@ The model does not directly execute tools. The platform executes approved tools.
 Evidence and Integrity
 
 Each workflow is persisted into the evidence store.
+```
 
-Evidence includes:
+# Evidence includes:
 
 request metadata
 policy decision
@@ -130,7 +138,8 @@ trace timeline
 telemetry
 tool invocation status
 hash-chain integrity metadata
-Observability
+```
+#Observability
 
 Each workflow includes trace events for major stages.
 
@@ -141,7 +150,8 @@ Which stage made the decision?
 Was approval required?
 Was a tool invoked?
 Was the evidence persisted?
-Deployment Mapping
+
+##Deployment Mapping
 
 The same architecture can map to:
 
