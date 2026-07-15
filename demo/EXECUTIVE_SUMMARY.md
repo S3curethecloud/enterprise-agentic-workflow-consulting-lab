@@ -56,16 +56,17 @@ Agent Orchestrator
    +--> MCP Tool Layer
    +--> Evidence Store
    +--> Observability and Telemetry
-Key Enterprise Principle
+```
+## Key Enterprise Principle
 
 The model does not directly control enterprise systems.
 
 The model can suggest or request an action, but the platform authorizes, governs, executes, logs, and evidences the action.
 
-Interview Summary
+## Interview Summary
 
 I built a governed enterprise agentic workflow platform that connects an AI gateway, RAG service, MCP-style tool layer, policy engine, agent registry, Responsible AI evaluator, approval workflow, telemetry layer, and tamper-evident evidence store. The platform demonstrates how enterprise agents can be controlled before they invoke tools, how review-required actions are routed to approval, and how every decision is preserved for audit.
 
-Outcome
+## Outcome
 
 The final lab is a consulting-ready reference architecture that can be explained to technical interviewers, enterprise stakeholders, platform teams, AI governance teams, and cloud architecture teams.
