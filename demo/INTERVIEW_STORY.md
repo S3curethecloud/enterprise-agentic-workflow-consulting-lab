@@ -70,6 +70,7 @@ OpenAI API
 local open-source models
 
 This shows that the control plane is portable across model providers.
+```
 
 Strong Interview Answer
 
