@@ -16,7 +16,7 @@ Enterprise teams want agents to retrieve information, call tools, and support bu
 
 I built a local platform where every agent workflow goes through:
 
-```text
+```
 agent registry enforcement
 AI gateway intake
 RAG grounding
@@ -33,8 +33,9 @@ The most important design decision was separating model reasoning from platform 
 The LLM can suggest a tool or action, but the platform decides whether that action is allowed and executes it only if governance checks pass.
 
 Governance Controls
+```
 
-The platform checks:
+## The platform checks:
 
 whether the agent is registered
 whether the agent is active
