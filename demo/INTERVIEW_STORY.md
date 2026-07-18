@@ -58,8 +58,9 @@ cost telemetry
 hash-chain integrity
 
 This makes the workflow auditable.
+```
 
-Cloud Mapping
+## Cloud Mapping
 
 I also mapped the architecture to:
 
